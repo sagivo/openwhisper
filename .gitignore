@@ -1,0 +1,32 @@
+# Node
+node_modules/
+dist/
+
+# Rust / Tauri build output
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Local release artifacts produced by scripts/release.mjs
+src-tauri/target/release/bundle/
+
+# Models are downloaded at runtime (see scripts/download-models.sh); too large for git
+models/
+*.bin
+*.gguf
+
+# Env / secrets
+.env
+.env.local
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Local editor / agent state
+.claude/
+.cursor/
+
+# OS cruft
+.DS_Store
+Thumbs.db

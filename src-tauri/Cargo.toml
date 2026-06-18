@@ -1,0 +1,78 @@
+[package]
+name = "openwhisper"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "openwhisper_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.1", features = ["macos-private-api", "tray-icon", "image-png"] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-global-shortcut = "2.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+parking_lot = "0.12"
+once_cell = "1"
+dirs = "5"
+log = "0.4"
+env_logger = "0.11"
+crossbeam-channel = "0.5"
+encoding_rs = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util"] }
+futures-util = "0.3"
+
+# Audio
+cpal = "0.15"
+hound = "3.5"
+
+# Whisper
+whisper-rs = { version = "0.16", default-features = false }
+
+# LLM (llama.cpp bindings). Pinned to 0.1.146 because that's the first
+# release whose bundled llama.cpp ships the `gemma4-iswa.cpp` loader
+# required to mmap Gemma 4 E2B/E4B GGUFs.
+#
+# `llama-cpp-sys-2` is overridden via `[patch.crates-io]` below to use a
+# locally vendored copy at `vendor/llama-cpp-sys-2`. The vendored copy has a
+# one-line patch in `llama.cpp/src/llama-context.cpp` that defaults
+# `cparams.auto_fgdn = false` so we skip the Fused Gated Delta Net device-
+# placement check entirely. That check aborts the process at load time for
+# non-FGDN architectures (Gemma 2/4) on this hardware, even though those
+# models never call `ggml_gated_delta_net` themselves. We don't load any
+# GDN architectures, so disabling the auto-resolution is safe.
+llama-cpp-2 = { version = "=0.1.146", default-features = false }
+llama-cpp-sys-2 = "=0.1.146"
+
+# Text injection
+enigo = "0.2"
+arboard = "3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
+
+[features]
+default = []
+metal = ["whisper-rs/metal", "llama-cpp-2/metal"]
+cuda = ["whisper-rs/cuda", "llama-cpp-2/cuda"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+
+# See note above on the `llama-cpp-sys-2` dep — this points the dependency at
+# our locally vendored copy (with the FGDN crash patch applied) instead of
+# the version on crates.io.
+[patch.crates-io]
+llama-cpp-sys-2 = { path = "vendor/llama-cpp-sys-2" }

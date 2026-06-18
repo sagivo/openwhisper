@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenWhisper — free, private voice typing.</title>
+  <meta name="description" content="Type with your voice anywhere on your computer. 100% free and 100% private — everything happens on your device, so your voice never leaves your machine." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗣️</text></svg>" />
+</head>
+<body>
+  <!-- animated background blobs -->
+  <div class="bg-blobs" aria-hidden="true">
+    <span class="blob blob-1"></span>
+    <span class="blob blob-2"></span>
+    <span class="blob blob-3"></span>
+  </div>
+
+  <header class="nav">
+    <a class="brand" href="#top">
+      <span class="brand-icon">🗣️</span>
+      <span>OpenWhisper</span>
+    </a>
+    <nav class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#how">How it works</a>
+      <a href="#privacy">Privacy</a>
+      <a class="nav-cta" href="#download">Download free</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <!-- HERO -->
+    <section class="hero">
+      <div class="hero-badge">
+        <span class="dot"></span> 100% free · 100% private · nothing leaves your device
+      </div>
+      <h1 class="hero-title">
+        Just talk.<br />
+        <span class="grad">It types for you.</span>
+      </h1>
+      <p class="hero-sub">
+        OpenWhisper turns your voice into clean, ready-to-send text anywhere on your
+        computer — emails, messages, notes, you name it. It's completely
+        <strong>free</strong>, and everything happens <strong>on your device</strong>, so your
+        words never leave your machine.
+      </p>
+
+      <!-- interactive mic demo -->
+      <div class="demo" id="demo">
+        <button class="mic-btn" id="micBtn" aria-pressed="false" aria-label="Toggle the demo recorder">
+          <span class="mic-glyph">🎙️</span>
+          <span class="mic-rec" id="micRec">● REC</span>
+        </button>
+        <div class="waveform" id="waveform" aria-hidden="true"></div>
+        <div class="transcript" id="transcript">
+          <div class="t-line t-raw" id="tRaw"><span class="t-tag">you say</span><span id="rawText">tap the mic and give it a try →</span></div>
+          <div class="t-line t-clean" id="tClean"><span class="t-tag">it types</span><span id="cleanText"></span></div>
+        </div>
+      </div>
+
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="#download">Download free</a>
+        <a class="btn btn-ghost" href="#how">See how it works</a>
+      </div>
+
+      <div class="hero-stats">
+        <div><b>$0</b><span>free, forever</span></div>
+        <div><b>0</b><span>data collected</span></div>
+        <div><b>100%</b><span>on your device</span></div>
+      </div>
+      <p class="footnote">No account. No subscription. No catch.</p>
+    </section>
+
+    <!-- FEATURES -->
+    <section id="features" class="section">
+      <h2 class="section-title">Why you'll love it <span class="wink">😌</span></h2>
+      <div class="cards">
+        <article class="card">
+          <div class="card-ico">💸</div>
+          <h3>Free, forever</h3>
+          <p>No subscriptions, no trials, no account to sign up for. Download it and it's yours.</p>
+        </article>
+        <article class="card">
+          <div class="card-ico">🔒</div>
+          <h3>Completely private</h3>
+          <p>Your voice and your words stay on your computer. Nothing is uploaded, stored, or shared — ever.</p>
+        </article>
+        <article class="card">
+          <div class="card-ico">🧹</div>
+          <h3>Polished, not messy</h3>
+          <p>It quietly removes the "ums" and "uhs" and tidies up your sentence, so what you get is ready to send.</p>
+        </article>
+        <article class="card">
+          <div class="card-ico">✍️</div>
+          <h3>Works everywhere</h3>
+          <p>Email, chat apps, documents, search bars — if you can type there, you can talk there.</p>
+        </article>
+        <article class="card">
+          <div class="card-ico">⚡</div>
+          <h3>Fast as you talk</h3>
+          <p>Your words appear almost instantly, with no spinning wheels or waiting on the internet.</p>
+        </article>
+        <article class="card">
+          <div class="card-ico">📡</div>
+          <h3>Works offline</h3>
+          <p>On a plane, on the train, or off the grid — it keeps working with no connection at all.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- HOW IT WORKS -->
+    <section id="how" class="section">
+      <h2 class="section-title">How it works <span class="wink">✨</span></h2>
+      <div class="pipeline">
+        <div class="step">
+          <span class="step-num">1</span>
+          <h3>Tap &amp; talk</h3>
+          <p>Click the little icon in your menu bar (or press a hotkey) and start speaking — naturally.</p>
+        </div>
+        <div class="arrow">→</div>
+        <div class="step">
+          <span class="step-num">2</span>
+          <h3>It tidies up</h3>
+          <p>OpenWhisper turns your speech into clean, well-written text and removes the filler words.</p>
+        </div>
+        <div class="arrow">→</div>
+        <div class="step">
+          <span class="step-num">3</span>
+          <h3>Done</h3>
+          <p>The finished text drops right where you're typing. Send it, save it, done.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- PRIVACY -->
+    <section id="privacy" class="section">
+      <div class="privacy-banner">
+        <div class="privacy-ico">🔒</div>
+        <h2>Your voice never leaves your device</h2>
+        <p>
+          Most voice tools send your recordings to a company's servers to be processed —
+          and sometimes kept. OpenWhisper is different: it does all the listening and
+          writing right on your own computer. There's no cloud, no account, and no
+          tracking. Your private thoughts stay private, and it even works with the
+          internet switched off.
+        </p>
+        <div class="privacy-tags">
+          <span class="ptag">🚫 No cloud</span>
+          <span class="ptag">🙅 No account</span>
+          <span class="ptag">👁️ No tracking</span>
+          <span class="ptag">📡 Works offline</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- DOWNLOAD -->
+    <section id="download" class="section">
+      <div class="download-card">
+        <h2 class="section-title" style="margin-bottom:14px;">Ready to give your fingers a break? <span class="wink">🙌</span></h2>
+        <p class="download-sub">Download OpenWhisper for free. No sign-up, no credit card, no nonsense.</p>
+        <div class="hero-cta" style="margin-top:28px;">
+          <a class="btn btn-primary" href="#" id="downloadBtn">Download free for macOS</a>
+          <a class="btn btn-ghost" href="https://github.com/" target="_blank" rel="noopener">View the source on GitHub</a>
+        </div>
+        <p class="footnote" style="margin-top:22px;">Free and open source · Built for people who'd rather their voice stay home.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <span class="brand"><span class="brand-icon">🗣️</span> OpenWhisper</span>
+      <p>Free, private voice typing for everyone. Your voice stays on your device — always.</p>
+      <div class="footer-links">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#privacy">Privacy</a>
+        <a href="#download">Download</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

@@ -28,6 +28,7 @@
       <a href="#features">Features</a>
       <a href="#how">How it works</a>
       <a href="#privacy">Privacy</a>
+      <a href="#docs">Docs</a>
       <a class="nav-cta" href="#download">Download free</a>
     </nav>
   </header>
@@ -134,6 +135,11 @@
           <p>The finished text drops right where you're typing. Send it, save it, done.</p>
         </div>
       </div>
+      <p class="how-note">
+        <span class="how-note-ico">🧠</span>
+        It's all powered by AI that runs right on your computer — so it's fast,
+        works offline, and your voice never gets sent anywhere.
+      </p>
     </section>
 
     <!-- PRIVACY -->
@@ -155,6 +161,104 @@
           <span class="ptag">📡 Works offline</span>
         </div>
       </div>
+    </section>
+
+    <!-- DOCS / SETTINGS -->
+    <section id="docs" class="section">
+      <h2 class="section-title">Make it yours <span class="wink">⚙️</span></h2>
+      <p class="docs-intro">
+        Everything is adjustable from the <strong>Settings</strong> window — click the
+        🗣️ icon in your menu bar and choose <strong>Settings</strong>. Tweak something,
+        hit <strong>Save &amp; Reload</strong>, and you're good to go. Here are the
+        knobs worth knowing about.
+      </p>
+
+      <!-- featured: swap the AI model -->
+      <div class="docs-feature">
+        <div class="docs-feature-ico">🧠</div>
+        <div>
+          <h3>Swap the AI model (the LLM)</h3>
+          <p>
+            OpenWhisper uses a small local language model — Gemma by default — to tidy
+            up your words. Want a smarter or lighter one? You can point it at any
+            compatible model file (a <code>.gguf</code> file).
+          </p>
+          <ol class="docs-steps">
+            <li>Download a <code>.gguf</code> model (for example from a model hub like Hugging Face).</li>
+            <li>Open <strong>Settings</strong> → find <strong>Gemma Model</strong>.</li>
+            <li>Click <strong>Browse</strong> and pick your <code>.gguf</code> file.</li>
+            <li>Press <strong>Save &amp; Reload</strong>. Done — it's now using your model.</li>
+          </ol>
+          <p class="docs-tip">
+            💡 Tip: smaller models are faster and use less memory; larger ones write
+            more polished text but need a beefier machine. The default Gemma is a great
+            balance for most people.
+          </p>
+        </div>
+      </div>
+
+      <!-- settings reference -->
+      <h3 class="docs-subtitle">All the settings</h3>
+      <div class="settings-list">
+        <div class="setting">
+          <div class="setting-name">Global hotkey</div>
+          <div class="setting-desc">The key you hold to talk. Defaults to <kbd>Fn</kbd>. Set any combo, e.g. <code>CmdOrCtrl+Shift+Space</code>.</div>
+        </div>
+        <div class="setting">
+          <div class="setting-name">Language</div>
+          <div class="setting-desc">Hint for what you're speaking — <code>auto</code>, <code>en</code>, <code>es</code>, and so on. Leave it on <code>auto</code> if unsure.</div>
+        </div>
+        <div class="setting">
+          <div class="setting-name">Refine with Gemma</div>
+          <div class="setting-desc">The cleanup step. On = polished sentences. Turn it off to get the exact words you said, untouched.</div>
+        </div>
+        <div class="setting">
+          <div class="setting-name">Refinement prompt</div>
+          <div class="setting-desc">The instructions the AI follows when cleaning up. Edit it to change the style — more formal, more casual, add emoji, whatever you like.</div>
+        </div>
+        <div class="setting">
+          <div class="setting-name">Fast paste</div>
+          <div class="setting-desc">Drops in your raw words instantly, then swaps in the polished version a moment later. Great for low perceived lag.</div>
+        </div>
+        <div class="setting">
+          <div class="setting-name">Restore clipboard</div>
+          <div class="setting-desc">Puts whatever you'd copied back on the clipboard after pasting, so dictation doesn't overwrite it.</div>
+        </div>
+        <div class="setting">
+          <div class="setting-name">Whisper model</div>
+          <div class="setting-desc">The speech-to-text model. The built-in one is plenty for most people, but you can browse to a different one.</div>
+        </div>
+        <div class="setting">
+          <div class="setting-name">Performance</div>
+          <div class="setting-desc">Set the max recording length and how many CPU threads to use (<code>0</code> = pick automatically).</div>
+        </div>
+      </div>
+
+      <!-- power user: config file -->
+      <details class="docs-advanced">
+        <summary>For power users: edit the config file directly</summary>
+        <p>
+          All settings live in a plain text file you can edit by hand. On macOS it's at:
+        </p>
+        <div class="code-block">
+          <button class="copy-btn" data-copy="~/Library/Application Support/openwhisper/config.json">copy</button>
+<pre><code>~/Library/Application Support/openwhisper/config.json</code></pre>
+        </div>
+        <p>It looks something like this — change a value, save, and restart OpenWhisper:</p>
+        <div class="code-block">
+<pre><code>{
+  <span class="c-key">"hotkey"</span>: <span class="c-str">"Fn"</span>,
+  <span class="c-key">"language"</span>: <span class="c-str">"auto"</span>,
+  <span class="c-key">"use_llm_refinement"</span>: <span class="c-bool">true</span>,
+  <span class="c-key">"llm_model_path"</span>: <span class="c-str">"/path/to/your-model.gguf"</span>,
+  <span class="c-key">"refine_prompt"</span>: <span class="c-str">"Rewrite this as a clean message…"</span>,
+  <span class="c-key">"fast_paste"</span>: <span class="c-bool">false</span>
+}</code></pre>
+        </div>
+        <p class="footnote" style="text-align:left;margin-top:14px;">
+          On Linux it's <code>~/.config/openwhisper/config.json</code>; on Windows it's <code>%APPDATA%\openwhisper\config.json</code>.
+        </p>
+      </details>
     </section>
 
     <!-- DOWNLOAD -->
@@ -179,6 +283,7 @@
         <a href="#features">Features</a>
         <a href="#how">How it works</a>
         <a href="#privacy">Privacy</a>
+        <a href="#docs">Docs</a>
         <a href="#download">Download</a>
       </div>
     </div>

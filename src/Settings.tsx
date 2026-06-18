@@ -46,8 +46,8 @@ const MODEL_LABELS: Record<ModelStatus["key"], { name: string; subtitle: string 
     subtitle: "~148 MB · speech-to-text",
   },
   llm: {
-    name: "Gemma 4 E2B Instruct (Q4_K_M)",
-    subtitle: "~3.1 GB · transcript cleanup",
+    name: "Gemma 4 E4B Instruct (Q4_K_M)",
+    subtitle: "~5.0 GB · transcript cleanup",
   },
 };
 

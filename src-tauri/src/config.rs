@@ -114,9 +114,14 @@ pub fn load() -> Config {
         }
     }
     if cfg.llm_model_path.is_empty() {
-        let p = data_models.join("gemma-4-E2B-it-Q4_K_M.gguf");
-        if p.exists() {
-            cfg.llm_model_path = p.to_string_lossy().into_owned();
+        // Prefer the current default (E4B); fall back to the older E2B GGUF so
+        // existing installs aren't forced to re-download.
+        for name in ["gemma-4-E4B-it-Q4_K_M.gguf", "gemma-4-E2B-it-Q4_K_M.gguf"] {
+            let p = data_models.join(name);
+            if p.exists() {
+                cfg.llm_model_path = p.to_string_lossy().into_owned();
+                break;
+            }
         }
     }
     cfg

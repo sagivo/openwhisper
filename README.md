@@ -2,14 +2,14 @@
 
 A fully-local, cross-platform clone of WhisperFlow. Click-to-talk dictation
 from the menu bar with a local Whisper model for transcription and a local
-Gemma 4 E2B for LLM-powered cleanup. Nothing leaves your machine.
+Gemma 4 E4B for LLM-powered cleanup. Nothing leaves your machine.
 
 ## How it works
 
 ```
 [Click tray icon] -> mic capture (cpal, 16kHz mono)
 [Click tray icon] -> Whisper.cpp transcription (whisper-rs)
-                  -> Gemma 4 E2B refinement (llama.cpp via llama-cpp-2)
+                  -> Gemma 4 E4B refinement (llama.cpp via llama-cpp-2)
                   -> Paste into focused text field, or copy to clipboard
 ```
 
@@ -45,7 +45,7 @@ registered as an alternative trigger.
 
 ```bash
 npm install
-./scripts/download-models.sh   # downloads Whisper base.en + Gemma-4-E2B-it Q4_K_M
+./scripts/download-models.sh   # downloads Whisper base.en + Gemma-4-E4B-it Q4_K_M
 ```
 
 ### Dev
@@ -126,7 +126,7 @@ To cut a new release, bump `version` in both `package.json` and
 ## First-run setup
 
 The Settings window has a **Models** section that downloads the default
-Whisper (≈148 MB) and Gemma 4 E2B (≈3.1 GB) models into
+Whisper (≈148 MB) and Gemma 4 E4B (≈5.0 GB) models into
 `~/Library/Application Support/openwhisper/models/` and wires them into the
 config automatically. Click each **Download** button once and you're done.
 
@@ -145,7 +145,7 @@ keyboard injection uses XTest/uinput depending on display server.
 | Whisper model | _empty_ | Any GGML/GGUF whisper.cpp model. |
 | Language | `auto` | Whisper language hint, e.g. `en`, `es`, or `auto`. |
 | Refine with Gemma | on | Disable to type the raw transcript verbatim. |
-| Gemma model | _empty_ | Any GGUF Gemma model. Gemma 4 E2B Q4_K_M is recommended. |
+| Gemma model | _empty_ | Any GGUF Gemma model. Gemma 4 E4B Q4_K_M is recommended. |
 | Refine prompt | (sensible default) | Editable system prompt for the LLM. |
 | Fast paste | on | Paste the raw transcript immediately, then replace it with the refined version when Gemma finishes (skipped if refinement takes >2 s, to avoid clobbering anything you've typed since). |
 

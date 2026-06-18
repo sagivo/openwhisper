@@ -28,12 +28,12 @@ impl ModelKind {
             ModelKind::Whisper => {
                 "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
             }
-            // Gemma 4 E2B Instruct, Q4_K_M (~3.11 GB). The unsloth mirror is
-            // anonymous-downloadable (the official `google/gemma-4-E2B-it`
-            // and `ggml-org/gemma-4-E2B-it-GGUF` repos are gated and require
+            // Gemma 4 E4B Instruct, Q4_K_M (~4.98 GB). The unsloth mirror is
+            // anonymous-downloadable (the official `google/gemma-4-E4B-it`
+            // and `ggml-org/gemma-4-E4B-it-GGUF` repos are gated and require
             // an HF auth token).
             ModelKind::Llm => {
-                "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf"
+                "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf"
             }
         }
     }
@@ -41,7 +41,7 @@ impl ModelKind {
     fn filename(self) -> &'static str {
         match self {
             ModelKind::Whisper => "ggml-base.en.bin",
-            ModelKind::Llm => "gemma-4-E2B-it-Q4_K_M.gguf",
+            ModelKind::Llm => "gemma-4-E4B-it-Q4_K_M.gguf",
         }
     }
 

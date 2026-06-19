@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗣️</text></svg>" />
+  <link rel="icon" type="image/svg+xml" href="icon.svg" />
 </head>
 <body>
   <!-- animated background blobs -->
@@ -21,7 +21,7 @@
 
   <header class="nav">
     <a class="brand" href="#top">
-      <span class="brand-icon">🗣️</span>
+      <img class="brand-icon" src="icon.svg" width="28" height="28" alt="" aria-hidden="true" />
       <span>OpenWhisper</span>
     </a>
     <nav class="nav-links">
@@ -53,7 +53,14 @@
       <!-- interactive mic demo -->
       <div class="demo" id="demo">
         <button class="mic-btn" id="micBtn" aria-pressed="false" aria-label="Toggle the demo recorder">
-          <span class="mic-glyph">🎙️</span>
+          <span class="mic-glyph" aria-hidden="true">
+            <svg viewBox="0 0 64 64" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round">
+              <rect x="23.5" y="12" width="17" height="27" rx="8.5" fill="#ffffff" stroke="none" />
+              <path d="M16.5 30.5a15.5 15.5 0 0 0 31 0" />
+              <path d="M32 46v6.5" />
+              <path d="M23.5 52.5h17" />
+            </svg>
+          </span>
           <span class="mic-rec" id="micRec">● REC</span>
         </button>
         <div class="waveform" id="waveform" aria-hidden="true"></div>
@@ -168,7 +175,7 @@
       <h2 class="section-title">Make it yours <span class="wink">⚙️</span></h2>
       <p class="docs-intro">
         Everything is adjustable from the <strong>Settings</strong> window — click the
-        🗣️ icon in your menu bar and choose <strong>Settings</strong>. Tweak something,
+        OpenWhisper icon in your menu bar and choose <strong>Settings</strong>. Tweak something,
         hit <strong>Save &amp; Reload</strong>, and you're good to go. Here are the
         knobs worth knowing about.
       </p>
@@ -277,7 +284,7 @@
 
   <footer class="footer">
     <div class="footer-inner">
-      <span class="brand"><span class="brand-icon">🗣️</span> OpenWhisper</span>
+      <span class="brand"><img class="brand-icon" src="icon.svg" width="24" height="24" alt="" aria-hidden="true" /> OpenWhisper</span>
       <p>Free, private voice typing for everyone. Your voice stays on your device — always.</p>
       <div class="footer-links">
         <a href="#features">Features</a>

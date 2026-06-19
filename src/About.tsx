@@ -36,6 +36,7 @@ export default function About() {
 
   return (
     <div className="settings about">
+      <img className="app-logo" src="/icon.svg" width="64" height="64" alt="OpenWhisper" />
       <h1>OpenWhisper</h1>
       <p className="sub">Local-first voice dictation, powered by Whisper.</p>
 

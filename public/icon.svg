@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="OpenWhisper">
+  <defs>
+    <linearGradient id="owBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6c63ff"/>
+      <stop offset="1" stop-color="#20185c"/>
+    </linearGradient>
+    <radialGradient id="owGlow" cx="34%" cy="28%" r="60%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="64" height="64" rx="14.4" fill="url(#owBg)"/>
+  <rect width="64" height="64" rx="14.4" fill="url(#owGlow)"/>
+  <rect x="23.5" y="12" width="17" height="27" rx="8.5" fill="#ffffff"/>
+  <g fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round">
+    <path d="M16.5 30.5a15.5 15.5 0 0 0 31 0"/>
+    <path d="M32 46v6.5"/>
+    <path d="M23.5 52.5h17"/>
+  </g>
+</svg>

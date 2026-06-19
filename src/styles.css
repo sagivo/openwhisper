@@ -167,6 +167,13 @@ button {
 }
 
 /* ---------- About window ---------- */
+.about .app-logo {
+  display: block;
+  width: 64px;
+  height: 64px;
+  margin: 4px 0 14px;
+  border-radius: 14px;
+}
 .about-block {
   background: #1a1a1d;
   border: 1px solid #2a2a2e;

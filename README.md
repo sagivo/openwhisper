@@ -117,7 +117,7 @@ To cut a new release, bump `version` in both `package.json` and
 3. Release builds are **signed with a Developer ID and notarized by Apple**, so
    they launch normally with a double-click — no right-click override needed.
 5. OpenWhisper is a menu-bar-only app (`LSUIElement`) — there's no Dock icon.
-   Look for the 🗣️ icon in the menu bar.
+   Look for the OpenWhisper waveform icon in the menu bar.
 6. macOS will prompt for **Microphone** access on the first dictation, and
    you'll need to grant **Accessibility** access in
    *System Settings → Privacy & Security → Accessibility* so the app can

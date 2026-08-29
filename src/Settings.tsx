@@ -42,8 +42,8 @@ interface EngineStatus {
 
 const MODEL_LABELS: Record<ModelStatus["key"], { name: string; subtitle: string }> = {
   whisper: {
-    name: "Whisper (base.en)",
-    subtitle: "~148 MB · speech-to-text",
+    name: "Whisper (small.en)",
+    subtitle: "~466 MB · speech-to-text",
   },
   llm: {
     name: "Gemma 4 E4B Instruct (Q4_K_M)",
@@ -63,8 +63,17 @@ function formatBytes(n: number): string {
   return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+function formatLoadError(e: unknown): string {
+  const s = String(e);
+  if (s.includes("__TAURI_INTERNALS__") || s.includes("is not a function")) {
+    return "This window is the desktop UI. Run `npm run tauri dev` so settings can talk to the backend.";
+  }
+  return s;
+}
+
 export default function Settings() {
   const [cfg, setCfg] = useState<Config | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [log, setLog] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [modelStatus, setModelStatus] = useState<ModelStatus[]>([]);
@@ -82,7 +91,12 @@ export default function Settings() {
   };
 
   useEffect(() => {
-    invoke<Config>("get_config").then(setCfg).catch((e) => setLog(String(e)));
+    invoke<Config>("get_config")
+      .then((c) => {
+        setCfg(c);
+        setLoadError(null);
+      })
+      .catch((e) => setLoadError(formatLoadError(e)));
     invoke<EngineStatus>("get_engine_status").then(setEngine).catch(() => {});
     refreshModels();
     const unLog = listen<string>("log", (e) =>
@@ -125,6 +139,14 @@ export default function Settings() {
     }
   };
 
+  if (loadError && !cfg) {
+    return (
+      <div className="settings">
+        <h1>Couldn't load settings</h1>
+        <p className="sub">{loadError}</p>
+      </div>
+    );
+  }
   if (!cfg) return <div className="settings">Loading…</div>;
 
   const update = <K extends keyof Config>(k: K, v: Config[K]) =>

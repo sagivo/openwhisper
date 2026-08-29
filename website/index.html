@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
-  <link rel="icon" type="image/svg+xml" href="icon.svg" />
+  <link rel="icon" type="image/png" href="favicon.png" />
 </head>
 <body>
   <!-- animated background blobs -->
@@ -17,11 +17,15 @@
     <span class="blob blob-1"></span>
     <span class="blob blob-2"></span>
     <span class="blob blob-3"></span>
+    <span class="doodle doodle-star" style="top:12%;right:8%">✦</span>
+    <span class="doodle doodle-zig" style="top:38%;left:4%">〰️</span>
+    <span class="doodle doodle-star" style="bottom:18%;left:10%">★</span>
+    <span class="doodle doodle-burst" style="bottom:28%;right:6%">✺</span>
   </div>
 
   <header class="nav">
     <a class="brand" href="#top">
-      <img class="brand-icon" src="icon.svg" width="28" height="28" alt="" aria-hidden="true" />
+      <span class="brand-icon" aria-hidden="true">🤫</span>
       <span>OpenWhisper</span>
     </a>
     <nav class="nav-links">
@@ -44,15 +48,28 @@
         <span class="grad">It types for you.</span>
       </h1>
       <p class="hero-sub">
-        OpenWhisper turns your voice into clean, ready-to-send text anywhere on your
-        computer — emails, messages, notes, you name it. It's completely
-        <strong>free</strong>, and everything happens <strong>on your device</strong>, so your
-        words never leave your machine.
+        Hold a key and ramble. OpenWhisper turns the mess into a sentence you'd
+        actually send — emails, chats, notes, anywhere you can type. Completely
+        <strong>free</strong>. Completely <strong>on your device</strong>. Your voice never leaves the building.
       </p>
+
+      <div class="marquee" aria-hidden="true">
+        <div class="marquee-track">
+          <span>Gmail</span><span>Slack</span><span>Notes</span><span>iMessage</span><span>Notion</span><span>Docs</span><span>Linear</span><span>Twitter</span><span>Terminal</span><span>WhatsApp</span>
+          <span>Gmail</span><span>Slack</span><span>Notes</span><span>iMessage</span><span>Notion</span><span>Docs</span><span>Linear</span><span>Twitter</span><span>Terminal</span><span>WhatsApp</span>
+        </div>
+      </div>
 
       <!-- interactive mic demo -->
       <div class="demo" id="demo">
-        <button class="mic-btn" id="micBtn" aria-pressed="false" aria-label="Toggle the demo recorder">
+        <div class="sticker sticker-tap">tap me</div>
+        <button class="mic-btn" id="micBtn" aria-pressed="false" aria-label="Play the voice-typing demo">
+          <span class="mic-face" aria-hidden="true">
+            <span class="eye e-l"></span>
+            <span class="eye e-r"></span>
+            <span class="blush b-l"></span>
+            <span class="blush b-r"></span>
+          </span>
           <span class="mic-glyph" aria-hidden="true">
             <svg viewBox="0 0 64 64" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round">
               <rect x="23.5" y="12" width="17" height="27" rx="8.5" fill="#ffffff" stroke="none" />
@@ -63,11 +80,19 @@
           </span>
           <span class="mic-rec" id="micRec">● REC</span>
         </button>
+        <p class="demo-hint" id="demoHint">I'll catch the ums. You just talk.</p>
         <div class="waveform" id="waveform" aria-hidden="true"></div>
         <div class="transcript" id="transcript">
-          <div class="t-line t-raw" id="tRaw"><span class="t-tag">you say</span><span id="rawText">tap the mic and give it a try →</span></div>
-          <div class="t-line t-clean" id="tClean"><span class="t-tag">it types</span><span id="cleanText"></span></div>
+          <div class="t-line t-raw" id="tRaw"><span class="t-tag">you say</span><span id="rawText">tap the mic — I'll tidy the ramble →</span></div>
+          <div class="t-line t-clean" id="tClean">
+            <span class="t-tag">it types</span>
+            <span class="composer">
+              <span id="cleanText"></span><span class="caret" aria-hidden="true"></span>
+            </span>
+            <span class="send-pill" id="sendPill" hidden>↵ pasted</span>
+          </div>
         </div>
+        <div class="filler-stage" id="fillerStage" aria-hidden="true"></div>
       </div>
 
       <div class="hero-cta">
@@ -85,12 +110,12 @@
 
     <!-- FEATURES -->
     <section id="features" class="section">
-      <h2 class="section-title">Why you'll love it <span class="wink">😌</span></h2>
+      <h2 class="section-title">Why your fingers will file a complaint <span class="wink">😌</span></h2>
       <div class="cards">
         <article class="card">
           <div class="card-ico">💸</div>
           <h3>Free, forever</h3>
-          <p>No subscriptions, no trials, no account to sign up for. Download it and it's yours.</p>
+          <p>No subscriptions, no trials, no "start free then oops." Download it. It's yours.</p>
         </article>
         <article class="card">
           <div class="card-ico">🔒</div>
@@ -100,7 +125,7 @@
         <article class="card">
           <div class="card-ico">🧹</div>
           <h3>Polished, not messy</h3>
-          <p>It quietly removes the "ums" and "uhs" and tidies up your sentence, so what you get is ready to send.</p>
+          <p>It quietly kidnaps the "ums" and "uhs" so the sentence that lands is actually sendable.</p>
         </article>
         <article class="card">
           <div class="card-ico">✍️</div>
@@ -127,7 +152,7 @@
         <div class="step">
           <span class="step-num">1</span>
           <h3>Tap &amp; talk</h3>
-          <p>Simply press <kbd>Fn</kbd> and start speaking — naturally.</p>
+          <p>Hold <button type="button" class="fn-key" id="fnKey" aria-label="Play the demo">Fn</button> and ramble like a human. We like humans.</p>
         </div>
         <div class="arrow">→</div>
         <div class="step">
@@ -147,6 +172,14 @@
         It's all powered by AI that runs right on your computer — so it's fast,
         works offline, and your voice never gets sent anywhere.
       </p>
+
+      <div class="graveyard" aria-hidden="true">
+        <span class="graveyard-label">retired this week</span>
+        <div class="marquee-track graveyard-track">
+          <span>um</span><span>uh</span><span>like</span><span>you know</span><span>basically</span><span>so yeah</span><span>I mean</span><span>wait wait</span><span>kinda</span><span>sort of</span>
+          <span>um</span><span>uh</span><span>like</span><span>you know</span><span>basically</span><span>so yeah</span><span>I mean</span><span>wait wait</span><span>kinda</span><span>sort of</span>
+        </div>
+      </div>
     </section>
 
     <!-- PRIVACY -->
@@ -174,8 +207,8 @@
     <section id="docs" class="section">
       <h2 class="section-title">Make it yours <span class="wink">⚙️</span></h2>
       <p class="docs-intro">
-        Everything is adjustable from the <strong>Settings</strong> window — click the
-        OpenWhisper icon in your menu bar and choose <strong>Settings</strong>. Tweak something,
+        Everything is adjustable from the <strong>Settings</strong> window — click 🤫
+        in your menu bar and choose <strong>Settings</strong>. Tweak something,
         hit <strong>Save &amp; Reload</strong>, and you're good to go. Here are the
         knobs worth knowing about.
       </p>
@@ -271,11 +304,15 @@
     <!-- DOWNLOAD -->
     <section id="download" class="section">
       <div class="download-card">
-        <h2 class="section-title" style="margin-bottom:14px;">Ready to give your fingers a break? <span class="wink">🙌</span></h2>
-        <p class="download-sub">Download OpenWhisper for free. No sign-up, no credit card, no nonsense.</p>
+        <h2 class="section-title" style="margin-bottom:14px;">Ready to give your fingers a vacation? <span class="wink">🙌</span></h2>
+        <p class="download-sub">Download OpenWhisper for free. No sign-up, no credit card, no "enter your work email."</p>
         <div class="hero-cta" style="margin-top:28px;">
-          <a class="btn btn-primary" href="https://github.com/sagivo/openwhisper/releases/" id="downloadBtn">Download free for macOS</a>
-          <a class="btn btn-ghost" href="https://github.com/" target="_blank" rel="noopener">View the source on GitHub</a>
+          <a class="btn btn-primary btn-download" href="https://github.com/sagivo/openwhisper/releases/" id="downloadBtn">
+            Download free for macOS
+            <span class="sticker sticker-free">actually $0</span>
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/sagivo/openwhisper" target="_blank" rel="noopener">View the source on GitHub</a>
+          <a class="btn btn-coffee" href="https://buymeacoffee.com/sagivo" target="_blank" rel="noopener">☕ Buy me a coffee</a>
         </div>
         <p class="footnote" style="margin-top:22px;">Free and open source · Built for people who'd rather their voice stay home.</p>
       </div>
@@ -284,14 +321,15 @@
 
   <footer class="footer">
     <div class="footer-inner">
-      <span class="brand"><img class="brand-icon" src="icon.svg" width="24" height="24" alt="" aria-hidden="true" /> OpenWhisper</span>
-      <p>Free, private voice typing for everyone. Your voice stays on your device — always.</p>
+      <span class="brand"><span class="brand-icon" aria-hidden="true">🤫</span> OpenWhisper</span>
+      <p>Free, private voice typing for everyone. Typed by nobody. Your voice stays home.</p>
       <div class="footer-links">
         <a href="#features">Features</a>
         <a href="#how">How it works</a>
         <a href="#privacy">Privacy</a>
         <a href="#docs">Docs</a>
         <a href="#download">Download</a>
+        <a href="https://buymeacoffee.com/sagivo" target="_blank" rel="noopener">Buy me a coffee</a>
       </div>
     </div>
   </footer>

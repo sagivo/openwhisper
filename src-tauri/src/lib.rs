@@ -3,6 +3,7 @@ pub mod config;
 pub mod injector;
 pub mod llm_engine;
 pub mod models;
+pub mod permissions;
 pub mod whisper_engine;
 
 use anyhow::{anyhow, Result};
@@ -12,67 +13,19 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::image::Image;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_global_shortcut::{
     Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutEvent, ShortcutState,
 };
 
 const TRAY_ID: &str = "main";
-
-// Embedded tray icons. All icons are opaque-white waveform glyphs on a
-// transparent background, used as macOS template images so the OS auto-tints
-// them with the menu-bar foreground color (white in dark mode, black in light
-// mode).
-//
-// While recording, we don't change the icon *color* — we cycle through a set
-// of waveform frames whose bar heights vary, so the icon appears to "dance"
-// like a live audio meter. Frames are advanced once per `update_tray` call
-// while in the Recording state (driven by the existing 80–120ms level loop
-// in `on_hotkey` / `toggle_dictation`).
-const TRAY_ICON_TEMPLATE_PNG: &[u8] = include_bytes!("../icons/tray-mic-template.png");
-const TRAY_ICON_RECORDING_PNGS: &[&[u8]] = &[
-    include_bytes!("../icons/tray-mic-rec-00.png"),
-    include_bytes!("../icons/tray-mic-rec-01.png"),
-    include_bytes!("../icons/tray-mic-rec-02.png"),
-    include_bytes!("../icons/tray-mic-rec-03.png"),
-    include_bytes!("../icons/tray-mic-rec-04.png"),
-    include_bytes!("../icons/tray-mic-rec-05.png"),
-    include_bytes!("../icons/tray-mic-rec-06.png"),
-    include_bytes!("../icons/tray-mic-rec-07.png"),
-];
-
-// Decoded-once icon cache. `Image::from_bytes` decodes a PNG into RGBA pixels,
-// which we previously did on every tray update — i.e. ~12 PNG decodes per
-// second while recording. Cache the decoded RGBA buffers as `Image<'static>`
-// (the buffer is owned via `Cow::Owned`) and clone the cheap top-level struct
-// when we need to hand it to Tauri.
-static TRAY_ICON_TEMPLATE_CACHE: once_cell::sync::OnceCell<Image<'static>> =
-    once_cell::sync::OnceCell::new();
-static TRAY_ICON_RECORDING_CACHE: once_cell::sync::OnceCell<Vec<Image<'static>>> =
-    once_cell::sync::OnceCell::new();
-
-fn tray_icon_template() -> Option<Image<'static>> {
-    TRAY_ICON_TEMPLATE_CACHE
-        .get_or_try_init(|| Image::from_bytes(TRAY_ICON_TEMPLATE_PNG))
-        .ok()
-        .cloned()
-}
-
-fn tray_icon_recording_frame(frame: usize) -> Option<Image<'static>> {
-    let cache = TRAY_ICON_RECORDING_CACHE.get_or_init(|| {
-        TRAY_ICON_RECORDING_PNGS
-            .iter()
-            .filter_map(|b| Image::from_bytes(b).ok())
-            .collect()
-    });
-    if cache.is_empty() {
-        return None;
-    }
-    cache.get(frame % cache.len()).cloned()
-}
+/// Menu-bar mark. macOS renders this via `NSStatusItem` title so the emoji
+/// is native-sharp in light and dark mode.
+const TRAY_EMOJI: &str = "🤫";
+const TRAY_EMOJI_RECORDING: &str = "🤫●";
 
 use audio::Recorder;
 use llm_engine::LlmEngine;
@@ -118,9 +71,6 @@ pub struct AppState {
     job_tx: Mutex<Option<Sender<Job>>>,
     /// Tracks the currently registered hotkey for re-registration.
     current_hotkey: Mutex<Option<Shortcut>>,
-    /// Monotonic frame counter used to pick the next tray-icon frame while
-    /// recording; advanced on every `Status::Recording` tray update.
-    rec_anim_frame: Mutex<usize>,
     /// Latest known engine readiness. Mirrored to the frontend whenever it
     /// changes via the `engine-status` event.
     engine_status: Mutex<EngineStatus>,
@@ -138,7 +88,6 @@ impl AppState {
             llm: Mutex::new(None),
             job_tx: Mutex::new(None),
             current_hotkey: Mutex::new(None),
-            rec_anim_frame: Mutex::new(0),
             engine_status: Mutex::new(EngineStatus::default()),
             last_tray_tooltip: Mutex::new(""),
         }
@@ -278,6 +227,33 @@ fn list_models(state: State<AppState>) -> Vec<models::ModelStatus> {
     ]
 }
 
+fn model_path_is_ready(path: &str) -> bool {
+    !path.is_empty() && std::path::Path::new(path).exists()
+}
+
+fn bind_model_path(app: &AppHandle, kind: models::ModelKind, path_str: String) -> String {
+    let state = app.state::<AppState>();
+    let mut cfg = state.config.lock().clone();
+    let current = match kind {
+        models::ModelKind::Whisper => cfg.whisper_model_path.as_str(),
+        models::ModelKind::Llm => cfg.llm_model_path.as_str(),
+    };
+    // Empty *or* a stale path (file moved/deleted, leftover from a previous
+    // checkout) must be replaced. First-run setup downloads the default model
+    // then loads whatever is in config — if we leave a missing path in place,
+    // load fails with "whisper model not found" even though the download worked.
+    if model_path_is_ready(current) {
+        return path_str;
+    }
+    match kind {
+        models::ModelKind::Whisper => cfg.whisper_model_path = path_str.clone(),
+        models::ModelKind::Llm => cfg.llm_model_path = path_str.clone(),
+    }
+    let _ = config::save(&cfg);
+    *state.config.lock() = cfg;
+    path_str
+}
+
 #[tauri::command]
 async fn download_model(app: AppHandle, kind: models::ModelKind) -> Result<String, String> {
     // If the user already has a valid model file (either at the default
@@ -291,38 +267,136 @@ async fn download_model(app: AppHandle, kind: models::ModelKind) -> Result<Strin
             models::ModelKind::Llm => cfg.llm_model_path,
         }
     };
-    if !configured.is_empty() && std::path::Path::new(&configured).exists() {
+    if model_path_is_ready(&configured) {
         return Ok(configured);
     }
     let default_path = models::model_path(kind);
     if default_path.exists() {
-        return Ok(default_path.to_string_lossy().into_owned());
+        return Ok(bind_model_path(
+            &app,
+            kind,
+            default_path.to_string_lossy().into_owned(),
+        ));
     }
 
     let path = models::download(app.clone(), kind)
         .await
         .map_err(|e| e.to_string())?;
-    let path_str = path.to_string_lossy().into_owned();
-    // Wire the freshly-downloaded model into the user's config so it is
-    // picked up by the next `reload_models` call without manual paths.
-    let state = app.state::<AppState>();
-    let mut cfg = state.config.lock().clone();
-    let changed = match kind {
-        models::ModelKind::Whisper if cfg.whisper_model_path.is_empty() => {
-            cfg.whisper_model_path = path_str.clone();
-            true
-        }
-        models::ModelKind::Llm if cfg.llm_model_path.is_empty() => {
-            cfg.llm_model_path = path_str.clone();
-            true
-        }
-        _ => false,
-    };
-    if changed {
-        let _ = config::save(&cfg);
-        *state.config.lock() = cfg;
+    Ok(bind_model_path(
+        &app,
+        kind,
+        path.to_string_lossy().into_owned(),
+    ))
+}
+
+fn needs_onboarding(cfg: &Config) -> bool {
+    let whisper_ok = model_path_is_ready(&cfg.whisper_model_path);
+    let llm_ok = !cfg.use_llm_refinement || model_path_is_ready(&cfg.llm_model_path);
+    !(whisper_ok && llm_ok)
+}
+
+#[derive(Clone, Serialize)]
+struct SetupStatus {
+    stage: &'static str,
+    message: String,
+}
+
+fn emit_setup(app: &AppHandle, stage: &'static str, message: impl Into<String>) {
+    let _ = app.emit(
+        "setup-status",
+        SetupStatus {
+            stage,
+            message: message.into(),
+        },
+    );
+}
+
+static SETUP_LOCK: once_cell::sync::Lazy<tokio::sync::Mutex<()>> =
+    once_cell::sync::Lazy::new(|| tokio::sync::Mutex::new(()));
+static SETUP_DONE: AtomicBool = AtomicBool::new(false);
+
+/// First-run pipeline: download default models, load them, request mic +
+/// Accessibility. The setup window is a progress view; this command is the
+/// whole wizard.
+#[tauri::command]
+async fn start_setup(app: AppHandle) -> Result<(), String> {
+    let _guard = SETUP_LOCK.lock().await;
+    if SETUP_DONE.load(Ordering::SeqCst) {
+        emit_setup(&app, "ready", "Ready");
+        return Ok(());
     }
-    Ok(path_str)
+
+    emit_setup(&app, "whisper", "Downloading the speech model…");
+    download_model(app.clone(), models::ModelKind::Whisper).await?;
+
+    let use_llm = app.state::<AppState>().config.lock().use_llm_refinement;
+    if use_llm {
+        emit_setup(&app, "llm", "Downloading the cleanup model…");
+        download_model(app.clone(), models::ModelKind::Llm).await?;
+    }
+
+    let already_loaded = {
+        let s = app.state::<AppState>().engine_status.lock().clone();
+        s.whisper_loaded && (!use_llm || s.llm_loaded)
+    };
+    if !already_loaded {
+        emit_setup(&app, "load", "Loading models into memory…");
+        let app_load = app.clone();
+        tauri::async_runtime::spawn_blocking(move || load_models(&app_load))
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    let st = app.state::<AppState>().engine_status.lock().clone();
+    if !st.whisper_loaded {
+        let msg = st
+            .whisper_error
+            .unwrap_or_else(|| "Whisper failed to load".into());
+        emit_setup(&app, "error", msg.clone());
+        return Err(msg);
+    }
+    if use_llm && !st.llm_loaded {
+        let msg = st
+            .llm_error
+            .unwrap_or_else(|| "Gemma failed to load".into());
+        emit_setup(&app, "error", msg.clone());
+        return Err(msg);
+    }
+
+    emit_setup(&app, "mic", "Asking for microphone access…");
+    let rec = app.state::<AppState>().recorder.clone();
+    let mic = tauri::async_runtime::spawn_blocking(move || {
+        rec.start(1)?;
+        std::thread::sleep(Duration::from_millis(250));
+        rec.stop().map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    if let Err(e) = mic {
+        let msg = format!("Microphone access failed: {e}");
+        emit_setup(&app, "error", msg.clone());
+        return Err(msg);
+    }
+
+    emit_setup(
+        &app,
+        "accessibility",
+        "Asking for Accessibility so text can paste…",
+    );
+    if !permissions::prompt_accessibility() {
+        permissions::open_accessibility_settings();
+    }
+
+    SETUP_DONE.store(true, Ordering::SeqCst);
+    emit_setup(&app, "ready", "Ready");
+    Ok(())
+}
+
+#[tauri::command]
+fn dismiss_setup(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("setup") {
+        let _ = w.hide();
+    }
 }
 
 #[tauri::command]
@@ -349,17 +423,19 @@ fn show_window(app: &AppHandle, label: &str) {
     // Window not declared in tauri.conf.json (e.g. "about"/"help"): create it
     // on demand. The frontend reads `window.location.hash` to pick which view
     // to render (see src/App.tsx).
-    let (title, width, height) = match label {
-        "about" => ("About OpenWhisper", 480.0, 420.0),
-        "help" => ("OpenWhisper Help", 640.0, 640.0),
-        "settings" => ("OpenWhisper Settings", 560.0, 720.0),
-        _ => ("OpenWhisper", 560.0, 480.0),
+    let (title, width, height, resizable) = match label {
+        "about" => ("About OpenWhisper", 480.0, 420.0, true),
+        "help" => ("OpenWhisper Help", 640.0, 640.0, true),
+        "settings" => ("OpenWhisper Settings", 560.0, 720.0, true),
+        "setup" => ("OpenWhisper", 440.0, 620.0, false),
+        _ => ("OpenWhisper", 560.0, 480.0, true),
     };
     let url = WebviewUrl::App(format!("index.html#{label}").into());
     match WebviewWindowBuilder::new(app, label, url)
         .title(title)
         .inner_size(width, height)
-        .resizable(true)
+        .resizable(resizable)
+        .center()
         .build()
     {
         Ok(w) => {
@@ -921,59 +997,30 @@ fn emit_status(app: &AppHandle, status: Status) {
     let _ = app.emit("status", status);
 }
 
-/// Mirror the current status onto the menu-bar tray icon.
+/// Mirror the current status onto the menu-bar tray mark.
 ///
-/// Hot-path optimisations for the Recording state (called every 80 ms):
-/// - `set_title` and `set_icon_as_template` are never called here; both are
-///   constants (always `None` / `true`) set at tray-build time and never
-///   changed elsewhere.
-/// - `set_tooltip` is called only on the **first tick** of each recording
-///   session; subsequent ticks only update the animated icon frame.
-///
-/// For non-Recording states, `set_tooltip` is only called when the text
-/// actually changes (tracked in `AppState::last_tray_tooltip`).
+/// `set_title` / `set_tooltip` run only when the text actually changes
+/// (tracked in `AppState::last_tray_tooltip`), so the 80 ms recording
+/// level loop is a no-op after the first tick.
 fn update_tray(app: &AppHandle, status: &Status) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return;
     };
-    let state = app.state::<AppState>();
-
-    if let Status::Recording { .. } = status {
-        let mut f = state.rec_anim_frame.lock();
-        let frame = *f;
-        *f = f.wrapping_add(1);
-
-        // Update tooltip only once when we first enter the Recording state.
-        if frame == 0 {
-            let tooltip = "Recording… click to stop";
-            *state.last_tray_tooltip.lock() = tooltip;
-            let _ = tray.set_tooltip(Some(tooltip));
-        }
-
-        let _ = tray.set_icon(tray_icon_recording_frame(frame));
-        return;
-    }
-
-    // Non-recording state: switch back to the idle template icon and reset
-    // the animation frame counter.
-    *state.rec_anim_frame.lock() = 0;
-    let (icon, tooltip): (Option<Image<'_>>, &'static str) = match status {
-        Status::Idle => (tray_icon_template(), "OpenWhisper — click to dictate"),
-        Status::Transcribing => (tray_icon_template(), "Transcribing"),
-        Status::Refining => (tray_icon_template(), "Refining"),
-        Status::Injecting => (tray_icon_template(), "Pasting"),
-        Status::Error { .. } => (tray_icon_template(), "Error — see logs"),
-        Status::Recording { .. } => unreachable!(),
+    let (title, tooltip): (&'static str, &'static str) = match status {
+        Status::Idle => (TRAY_EMOJI, "OpenWhisper — click to dictate"),
+        Status::Recording { .. } => (TRAY_EMOJI_RECORDING, "Recording… click to stop"),
+        Status::Transcribing => (TRAY_EMOJI, "Transcribing"),
+        Status::Refining => (TRAY_EMOJI, "Refining"),
+        Status::Injecting => (TRAY_EMOJI, "Pasting"),
+        Status::Error { .. } => (TRAY_EMOJI, "Error — see logs"),
     };
-
-    {
-        let mut last = state.last_tray_tooltip.lock();
-        if *last != tooltip {
-            *last = tooltip;
-            let _ = tray.set_tooltip(Some(tooltip));
-        }
+    let state = app.state::<AppState>();
+    let mut last = state.last_tray_tooltip.lock();
+    if *last != tooltip {
+        *last = tooltip;
+        let _ = tray.set_tooltip(Some(tooltip));
+        let _ = tray.set_title(Some(title));
     }
-    let _ = tray.set_icon(icon);
 }
 
 /// Spawn a short-lived thread that emits `Status::Recording` level updates at
@@ -1092,9 +1139,13 @@ pub fn run() {
                     &quit_item,
                 ],
             )?;
-            let mut tray_builder = TrayIconBuilder::with_id(TRAY_ID);
-            if let Some(icon) = tray_icon_template() {
-                tray_builder = tray_builder.icon(icon).icon_as_template(true);
+            #[allow(unused_mut)]
+            let mut tray_builder = TrayIconBuilder::with_id(TRAY_ID).title(TRAY_EMOJI);
+            // macOS shows the emoji via `title` (native menu-bar text). Other
+            // platforms ignore title and need a raster icon.
+            #[cfg(not(target_os = "macos"))]
+            if let Some(icon) = app.default_window_icon() {
+                tray_builder = tray_builder.icon(icon.clone());
             }
             let _tray = tray_builder
                 .menu(&menu)
@@ -1113,11 +1164,18 @@ pub fn run() {
                 .build(app)?;
 
             emit_status(&handle, Status::Idle);
+
+            if needs_onboarding(&handle.state::<AppState>().config.lock())
+                || std::env::var_os("OPENWHISPER_FORCE_SETUP").is_some()
+            {
+                show_window(&handle, "setup");
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                if matches!(window.label(), "settings" | "about" | "help") {
+                if matches!(window.label(), "settings" | "about" | "help" | "setup") {
                     let _ = window.hide();
                     api.prevent_close();
                 }
@@ -1136,7 +1194,9 @@ pub fn run() {
             test_dictate,
             list_models,
             download_model,
-            get_engine_status
+            get_engine_status,
+            start_setup,
+            dismiss_setup
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1228,5 +1288,47 @@ mod tests {
         // comparator and is fine for the update-check use case (we already
         // skip prereleases at the API layer).
         assert!(is_newer("1.2.3-rc.1", "1.2.3"));
+    }
+
+    #[test]
+    fn model_path_ready_rejects_empty_and_missing() {
+        assert!(!model_path_is_ready(""));
+        assert!(!model_path_is_ready(
+            "/definitely/not/a/real/openwhisper/models/ggml-base.en.bin"
+        ));
+    }
+
+    #[test]
+    fn model_path_ready_accepts_existing_file() {
+        let path = std::env::temp_dir().join("openwhisper-model-path-ready.bin");
+        std::fs::write(&path, b"x").unwrap();
+        assert!(model_path_is_ready(&path.to_string_lossy()));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn onboarding_needed_when_models_missing() {
+        let cfg = Config::default();
+        assert!(needs_onboarding(&cfg));
+    }
+
+    #[test]
+    fn onboarding_needed_when_configured_whisper_path_is_stale() {
+        let mut cfg = Config::default();
+        cfg.whisper_model_path =
+            "/definitely/not/a/real/openwhisper/models/ggml-base.en.bin".into();
+        cfg.use_llm_refinement = false;
+        assert!(needs_onboarding(&cfg));
+    }
+
+    #[test]
+    fn onboarding_skipped_when_llm_disabled_and_whisper_present() {
+        let whisper = std::env::temp_dir().join("openwhisper-onboarding-whisper.bin");
+        std::fs::write(&whisper, b"x").unwrap();
+        let mut cfg = Config::default();
+        cfg.whisper_model_path = whisper.to_string_lossy().into_owned();
+        cfg.use_llm_refinement = false;
+        assert!(!needs_onboarding(&cfg));
+        let _ = std::fs::remove_file(&whisper);
     }
 }

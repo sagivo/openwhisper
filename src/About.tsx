@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-shell";
+import { BRAND_EMOJI } from "./brand";
+
+const COFFEE_URL = "https://buymeacoffee.com/sagivo";
 
 interface VersionInfo {
   current: string;
@@ -36,7 +40,7 @@ export default function About() {
 
   return (
     <div className="settings about">
-      <img className="app-logo" src="/icon.svg" width="64" height="64" alt="OpenWhisper" />
+      <div className="app-logo" aria-hidden="true">{BRAND_EMOJI}</div>
       <h1>OpenWhisper</h1>
       <p className="sub">Local-first voice dictation, powered by Whisper.</p>
 
@@ -60,6 +64,13 @@ export default function About() {
       </div>
 
       {message && <pre className="status-line">{message}</pre>}
+
+      <button
+        className="coffee-link"
+        onClick={() => open(COFFEE_URL).catch(() => window.open(COFFEE_URL, "_blank"))}
+      >
+        ☕ Buy me a coffee
+      </button>
 
       <p className="about-footer">
         © OpenWhisper · MIT

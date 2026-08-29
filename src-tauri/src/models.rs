@@ -26,7 +26,7 @@ impl ModelKind {
     fn url(self) -> &'static str {
         match self {
             ModelKind::Whisper => {
-                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin"
             }
             // Gemma 4 E4B Instruct, Q4_K_M (~4.98 GB). The unsloth mirror is
             // anonymous-downloadable (the official `google/gemma-4-E4B-it`
@@ -40,7 +40,7 @@ impl ModelKind {
 
     fn filename(self) -> &'static str {
         match self {
-            ModelKind::Whisper => "ggml-base.en.bin",
+            ModelKind::Whisper => "ggml-small.en.bin",
             ModelKind::Llm => "gemma-4-E4B-it-Q4_K_M.gguf",
         }
     }

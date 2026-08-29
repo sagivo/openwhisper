@@ -30,18 +30,13 @@ export default function Help() {
       <h2>Getting started</h2>
       <ol className="help-list">
         <li>
-          Open <em>Settings</em> from the menu bar and click{" "}
-          <strong>Download</strong> next to <em>Whisper</em> (and{" "}
-          <em>Gemma</em>, if you want refinement). Models are saved locally
-          and only downloaded once.
+          Open OpenWhisper. The first launch downloads the speech and cleanup
+          models and asks for Microphone and Accessibility — no Settings trip
+          required.
         </li>
         <li>
-          Grant <em>Accessibility</em> and <em>Microphone</em> permissions to
-          OpenWhisper when macOS prompts you — they're required to capture
-          audio and paste into other apps.
-        </li>
-        <li>
-          You're ready to dictate.
+          When the window says you're ready, click into any text field, hold{" "}
+          <span className="kbd">{hotkey}</span>, and speak.
         </li>
       </ol>
 
@@ -49,8 +44,7 @@ export default function Help() {
       <ol className="help-list">
         <li>
           <strong>Hold</strong> <span className="kbd">{hotkey}</span> and
-          start speaking. The menu bar icon's waveform animates while
-          recording.
+          start speaking. The menu bar shows 🤫 while you dictate.
         </li>
         <li>
           <strong>Release</strong> the hotkey when you're done. OpenWhisper
@@ -77,7 +71,7 @@ export default function Help() {
           the hotkey — great for long sessions.
         </li>
         <li>
-          The icon's tooltip reflects the current state (recording,
+          The 🤫 tooltip reflects the current state (recording,
           transcribing, refining, pasting, or error).
         </li>
       </ul>

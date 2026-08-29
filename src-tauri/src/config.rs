@@ -108,9 +108,14 @@ pub fn load() -> Config {
         .join("openwhisper")
         .join("models");
     if cfg.whisper_model_path.is_empty() {
-        let p = data_models.join("ggml-base.en.bin");
-        if p.exists() {
-            cfg.whisper_model_path = p.to_string_lossy().into_owned();
+        // Prefer the current default (small.en); fall back to the older base.en
+        // so existing installs aren't forced to re-download.
+        for name in ["ggml-small.en.bin", "ggml-base.en.bin"] {
+            let p = data_models.join(name);
+            if p.exists() {
+                cfg.whisper_model_path = p.to_string_lossy().into_owned();
+                break;
+            }
         }
     }
     if cfg.llm_model_path.is_empty() {

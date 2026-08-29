@@ -13,7 +13,7 @@ Gemma 4 E4B for LLM-powered cleanup. Nothing leaves your machine.
                   -> Paste into focused text field, or copy to clipboard
 ```
 
-Click the menu-bar icon to start listening (it shows `● REC`), click again to
+Click the 🤫 menu-bar icon to start listening (it shows `🤫●`), click again to
 stop. The raw transcription is rewritten by Gemma into a clean message
 ("um, like, can you, uh, send him a message saying I'll be late" → "Can you
 send him a message saying I'll be late?"). If a text field is focused, it's
@@ -45,22 +45,17 @@ registered as an alternative trigger.
 
 ```bash
 npm install
-./scripts/download-models.sh   # downloads Whisper base.en + Gemma-4-E4B-it Q4_K_M
+./scripts/download-models.sh   # downloads Whisper small.en + Gemma-4-E4B-it Q4_K_M
 ```
 
 ### Dev
 
 ```bash
 npm run tauri dev
+npm run dev:fresh          # wipe local config + models, then first-run setup
 ```
 
-For Apple Silicon GPU acceleration (Metal) on macOS:
-
-```bash
-npm run tauri dev -- --features metal
-```
-
-For NVIDIA:
+On macOS, Metal GPU acceleration is on automatically. For NVIDIA:
 
 ```bash
 npm run tauri dev -- --features cuda
@@ -69,8 +64,8 @@ npm run tauri dev -- --features cuda
 ### Production build
 
 ```bash
-npm run tauri build           # CPU build
-npm run tauri build -- --features metal   # macOS Metal
+npm run tauri build           # Metal on macOS, CPU elsewhere
+npm run tauri build -- --features cuda   # NVIDIA
 ```
 
 This produces both an installable `.app` and a `.dmg`:
@@ -117,7 +112,7 @@ To cut a new release, bump `version` in both `package.json` and
 3. Release builds are **signed with a Developer ID and notarized by Apple**, so
    they launch normally with a double-click — no right-click override needed.
 5. OpenWhisper is a menu-bar-only app (`LSUIElement`) — there's no Dock icon.
-   Look for the OpenWhisper waveform icon in the menu bar.
+   Look for 🤫 in the menu bar.
 6. macOS will prompt for **Microphone** access on the first dictation, and
    you'll need to grant **Accessibility** access in
    *System Settings → Privacy & Security → Accessibility* so the app can
@@ -125,17 +120,17 @@ To cut a new release, bump `version` in both `package.json` and
 
 ## First-run setup
 
-The Settings window has a **Models** section that downloads the default
-Whisper (≈148 MB) and Gemma 4 E4B (≈5.0 GB) models into
-`~/Library/Application Support/openwhisper/models/` and wires them into the
-config automatically. Click each **Download** button once and you're done.
+Opening the app the first time shows a setup window. It downloads the default
+Whisper (≈466 MB) and Gemma 4 E4B (≈5.0 GB) models into
+`~/Library/Application Support/openwhisper/models/`, loads them, and asks
+macOS for **Microphone** and **Accessibility**. When it says you're ready,
+hold `Fn` and speak.
 
-If you want to point at custom models instead, use the **Whisper Model** and
-**Gemma Model** path fields and click **Save & Reload**.
+If you want custom models later, open **Settings** from the menu bar, point
+the **Whisper Model** and **Gemma Model** paths at your files, and click
+**Save & Reload**.
 
-You'll need to grant **microphone** and **accessibility** permissions on
-macOS the first time you trigger the hotkey (the OS will prompt). On Linux,
-keyboard injection uses XTest/uinput depending on display server.
+On Linux, keyboard injection uses XTest/uinput depending on display server.
 
 ## Settings
 
@@ -177,7 +172,7 @@ Config lives at `~/Library/Application Support/openwhisper/config.json`
   hallucinations the previous global RMS gate sometimes missed.
 - **Clipboard is restored** after every paste so OpenWhisper doesn't clobber
   whatever you had copied.
-- **GPU acceleration** is opt-in via Cargo features (`metal`, `cuda`).
+- **GPU acceleration** is automatic on macOS (Metal). NVIDIA is opt-in via `--features cuda`.
 
 ## Project layout
 

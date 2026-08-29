@@ -2,7 +2,7 @@
 //!
 //! Usage:
 //!   cargo run --example pipeline_test --features metal -- \
-//!       ../models/ggml-base.en.bin \
+//!       ../models/ggml-small.en.bin \
 //!       ../models/gemma-2-2b-it-Q4_K_M.gguf \
 //!       ../test-data/jfk.wav
 

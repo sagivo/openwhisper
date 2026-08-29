@@ -10,7 +10,7 @@ pub struct Config {
     pub use_llm_refinement: bool,
     pub language: String,
     /// Paste the raw Whisper transcript as soon as it's ready, then replace
-    /// it with the refined version when Gemma finishes. Drastically reduces
+    /// it with the refined version when the LLM finishes. Drastically reduces
     /// perceived latency at the cost of a brief on-screen flash. Replacement
     /// is skipped if the refinement takes longer than a couple of seconds
     /// (so the user typing afterwards isn't clobbered).
@@ -36,7 +36,7 @@ pub struct Config {
     #[serde(default = "default_max_recording_seconds")]
     pub max_recording_seconds: u32,
 
-    /// Native inference threads for Whisper and Gemma. `0` means "auto" and
+    /// Native inference threads for Whisper and the LLM. `0` means "auto" and
     /// uses the existing half-of-available-cores heuristic.
     #[serde(default)]
     pub inference_threads: u32,
@@ -119,9 +119,14 @@ pub fn load() -> Config {
         }
     }
     if cfg.llm_model_path.is_empty() {
-        // Prefer the current default (E4B); fall back to the older E2B GGUF so
-        // existing installs aren't forced to re-download.
-        for name in ["gemma-4-E4B-it-Q4_K_M.gguf", "gemma-4-E2B-it-Q4_K_M.gguf"] {
+        // Prefer the current default (Qwen3 4B Instruct); fall back to older
+        // GGUFs so existing installs aren't forced to re-download.
+        for name in [
+            "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+            "Qwen3.5-4B-Q4_K_M.gguf",
+            "gemma-4-E4B-it-Q4_K_M.gguf",
+            "gemma-4-E2B-it-Q4_K_M.gguf",
+        ] {
             let p = data_models.join(name);
             if p.exists() {
                 cfg.llm_model_path = p.to_string_lossy().into_owned();

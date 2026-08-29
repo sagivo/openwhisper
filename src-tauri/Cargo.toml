@@ -47,8 +47,10 @@ whisper-rs = { version = "0.16", default-features = false }
 # `cparams.auto_fgdn = false` so we skip the Fused Gated Delta Net device-
 # placement check entirely. That check aborts the process at load time for
 # non-FGDN architectures (Gemma 2/4) on this hardware, even though those
-# models never call `ggml_gated_delta_net` themselves. We don't load any
-# GDN architectures, so disabling the auto-resolution is safe.
+# models never call `ggml_gated_delta_net` themselves. Qwen3.5 *does* use
+# Gated Delta Net, but it still runs on the unfused path with this flag
+# off. Leaving auto-resolution off keeps Gemma fallbacks from abort()ing
+# at context create on this hardware.
 llama-cpp-2 = { version = "=0.1.146", default-features = false }
 llama-cpp-sys-2 = "=0.1.146"
 

@@ -13,6 +13,10 @@ async function simulateSetup() {
     for (let i = 0; i <= steps; i++) {
       await emit("model-progress", {
         key,
+        filename:
+          key === "whisper"
+            ? "ggml-small.en.bin"
+            : "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
         downloaded: Math.round((total * i) / steps),
         total,
         done: i === steps,
@@ -23,15 +27,15 @@ async function simulateSetup() {
 
   await emit("setup-status", {
     stage: "whisper",
-    message: "Downloading the speech model…",
+    message: "Downloading Whisper small.en…",
   });
   await tick("whisper", 465);
 
   await emit("setup-status", {
     stage: "llm",
-    message: "Downloading the cleanup model…",
+    message: "Downloading Qwen3 4B Instruct 2507…",
   });
-  await tick("llm", 5120, 24);
+  await tick("llm", 2330, 24);
 
   await emit("setup-status", {
     stage: "load",
@@ -99,7 +103,7 @@ export function installBrowserMocks() {
           },
           {
             key: "llm",
-            filename: "gemma-4-E4B-it-Q4_K_M.gguf",
+            filename: "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
             path: "",
             exists: false,
             size: 0,

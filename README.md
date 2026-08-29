@@ -2,19 +2,19 @@
 
 A fully-local, cross-platform clone of WhisperFlow. Click-to-talk dictation
 from the menu bar with a local Whisper model for transcription and a local
-Gemma 4 E4B for LLM-powered cleanup. Nothing leaves your machine.
+Qwen3 4B Instruct for LLM-powered cleanup. Nothing leaves your machine.
 
 ## How it works
 
 ```
 [Click tray icon] -> mic capture (cpal, 16kHz mono)
 [Click tray icon] -> Whisper.cpp transcription (whisper-rs)
-                  -> Gemma 4 E4B refinement (llama.cpp via llama-cpp-2)
+                  -> Qwen3 4B Instruct refinement (llama.cpp via llama-cpp-2)
                   -> Paste into focused text field, or copy to clipboard
 ```
 
 Click the 🤫 menu-bar icon to start listening (it shows `🤫●`), click again to
-stop. The raw transcription is rewritten by Gemma into a clean message
+stop. The raw transcription is rewritten by a local LLM into a clean message
 ("um, like, can you, uh, send him a message saying I'll be late" → "Can you
 send him a message saying I'll be late?"). If a text field is focused, it's
 pasted there; otherwise it's left on the clipboard for you to paste manually.
@@ -45,7 +45,7 @@ registered as an alternative trigger.
 
 ```bash
 npm install
-./scripts/download-models.sh   # downloads Whisper small.en + Gemma-4-E4B-it Q4_K_M
+./scripts/download-models.sh   # downloads Whisper small.en + Qwen3-4B-Instruct-2507 Q4_K_M
 ```
 
 ### Dev
@@ -121,13 +121,13 @@ To cut a new release, bump `version` in both `package.json` and
 ## First-run setup
 
 Opening the app the first time shows a setup window. It downloads the default
-Whisper (≈466 MB) and Gemma 4 E4B (≈5.0 GB) models into
+Whisper (≈466 MB) and Qwen3 4B Instruct (≈2.3 GB) models into
 `~/Library/Application Support/openwhisper/models/`, loads them, and asks
 macOS for **Microphone** and **Accessibility**. When it says you're ready,
 hold `Fn` and speak.
 
 If you want custom models later, open **Settings** from the menu bar, point
-the **Whisper Model** and **Gemma Model** paths at your files, and click
+the **Whisper Model** and **Local AI model** paths at your files, and click
 **Save & Reload**.
 
 On Linux, keyboard injection uses XTest/uinput depending on display server.
@@ -139,10 +139,10 @@ On Linux, keyboard injection uses XTest/uinput depending on display server.
 | Hotkey | `Fn` | Push-to-talk. Hold to record. |
 | Whisper model | _empty_ | Any GGML/GGUF whisper.cpp model. |
 | Language | `auto` | Whisper language hint, e.g. `en`, `es`, or `auto`. |
-| Refine with Gemma | on | Disable to type the raw transcript verbatim. |
-| Gemma model | _empty_ | Any GGUF Gemma model. Gemma 4 E4B Q4_K_M is recommended. |
+| Refine with local AI | on | Disable to type the raw transcript verbatim. |
+| Local AI model | _empty_ | Any GGUF instruct model. Qwen3 4B Instruct 2507 Q4_K_M is the default. |
 | Refine prompt | (sensible default) | Editable system prompt for the LLM. |
-| Fast paste | on | Paste the raw transcript immediately, then replace it with the refined version when Gemma finishes (skipped if refinement takes >2 s, to avoid clobbering anything you've typed since). |
+| Fast paste | on | Paste the raw transcript immediately, then replace it with the refined version when the LLM finishes (skipped if refinement takes >2 s, to avoid clobbering anything you've typed since). |
 
 Config lives at `~/Library/Application Support/openwhisper/config.json`
 (macOS), `~/.config/openwhisper/config.json` (Linux), or
@@ -150,7 +150,7 @@ Config lives at `~/Library/Application Support/openwhisper/config.json`
 
 ## Why this is efficient
 
-- **Single binary, no Python.** Whisper and Gemma run via native
+- **Single binary, no Python.** Whisper and the local LLM run via native
   C++ bindings.
 - **Models are loaded once** on startup and reused for every dictation. The
   llama.cpp context is also kept warm across calls and the system-prompt
@@ -160,9 +160,9 @@ Config lives at `~/Library/Application Support/openwhisper/config.json`
   never leave the process. (Optional update check pings GitHub Releases on
   demand.)
 - **Greedy sampling, low max-tokens** for the LLM keeps refinement under
-  ~500 ms on Apple Silicon with the 2B Q4_K_M model.
+  ~500 ms on Apple Silicon with the 4B Q4_K_M model.
 - **Fast-paste mode** types the raw transcript the instant Whisper finishes,
-  then replaces it with the refined version once Gemma is done. Perceived
+  then replaces it with the refined version once the LLM is done. Perceived
   latency is effectively zero.
 - **Anti-aliased downsampling** to 16 kHz via a windowed-sinc low-pass
   before linear interpolation, so 48 kHz mics don't fold high-frequency

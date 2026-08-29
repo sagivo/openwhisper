@@ -25,6 +25,7 @@ interface ModelStatus {
 
 interface ModelProgress {
   key: "whisper" | "llm";
+  filename?: string;
   downloaded: number;
   total: number;
   done: boolean;
@@ -46,8 +47,8 @@ const MODEL_LABELS: Record<ModelStatus["key"], { name: string; subtitle: string 
     subtitle: "~466 MB · speech-to-text",
   },
   llm: {
-    name: "Gemma 4 E4B Instruct (Q4_K_M)",
-    subtitle: "~5.0 GB · transcript cleanup",
+    name: "Qwen3 4B Instruct 2507 (Q4_K_M)",
+    subtitle: "~2.3 GB · transcript cleanup",
   },
 };
 
@@ -194,7 +195,7 @@ export default function Settings() {
       });
     }
     if (engine.llm_error) {
-      issues.push({ tone: "warn", text: `Gemma: ${engine.llm_error}` });
+      issues.push({ tone: "warn", text: `Local AI: ${engine.llm_error}` });
     }
     if (engine.hotkey_error) {
       issues.push({
@@ -209,7 +210,7 @@ export default function Settings() {
       <h1>OpenWhisper</h1>
       <p className="sub">
         Hold <span className="kbd">{cfg.hotkey}</span> to dictate. Release to
-        transcribe, refine with Gemma, and type into the focused app.
+        transcribe, refine with local AI, and type into the focused app.
       </p>
 
       {issues.length > 0 && (
@@ -318,7 +319,7 @@ export default function Settings() {
             checked={cfg.use_llm_refinement}
             onChange={(e) => update("use_llm_refinement", e.target.checked)}
           />{" "}
-          Refine with Gemma
+          Refine with local AI
         </label>
       </div>
 
@@ -371,7 +372,7 @@ export default function Settings() {
       </div>
 
       <div className="row">
-        <label>Gemma Model (.gguf)</label>
+        <label>Local AI model (.gguf)</label>
         <div style={{ display: "flex", gap: 6 }}>
           <input
             type="text"

@@ -326,12 +326,23 @@ async fn start_setup(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    emit_setup(&app, "whisper", "Downloading the speech model…");
+    emit_setup(
+        &app,
+        "whisper",
+        format!(
+            "Downloading {}…",
+            models::ModelKind::Whisper.display_name()
+        ),
+    );
     download_model(app.clone(), models::ModelKind::Whisper).await?;
 
     let use_llm = app.state::<AppState>().config.lock().use_llm_refinement;
     if use_llm {
-        emit_setup(&app, "llm", "Downloading the cleanup model…");
+        emit_setup(
+            &app,
+            "llm",
+            format!("Downloading {}…", models::ModelKind::Llm.display_name()),
+        );
         download_model(app.clone(), models::ModelKind::Llm).await?;
     }
 
@@ -358,7 +369,7 @@ async fn start_setup(app: AppHandle) -> Result<(), String> {
     if use_llm && !st.llm_loaded {
         let msg = st
             .llm_error
-            .unwrap_or_else(|| "Gemma failed to load".into());
+            .unwrap_or_else(|| "Local AI model failed to load".into());
         emit_setup(&app, "error", msg.clone());
         return Err(msg);
     }
@@ -383,13 +394,89 @@ async fn start_setup(app: AppHandle) -> Result<(), String> {
         "accessibility",
         "Asking for Accessibility so text can paste…",
     );
-    if !permissions::prompt_accessibility() {
-        permissions::open_accessibility_settings();
-    }
+    let hotkey = app.state::<AppState>().config.lock().hotkey.clone();
+    let _ = prompt_hotkey_access(&hotkey);
 
     SETUP_DONE.store(true, Ordering::SeqCst);
     emit_setup(&app, "ready", "Ready");
     Ok(())
+}
+
+#[derive(Clone, Serialize)]
+struct HotkeyAccess {
+    accessibility: bool,
+    input_monitoring: bool,
+}
+
+impl HotkeyAccess {
+    fn ready(&self) -> bool {
+        self.accessibility && self.input_monitoring
+    }
+}
+
+fn prompt_hotkey_access(hotkey: &str) -> HotkeyAccess {
+    let accessibility = permissions::prompt_accessibility();
+    let input_monitoring = if permissions::hotkey_needs_listen_event(hotkey) {
+        permissions::prompt_input_monitoring()
+    } else {
+        true
+    };
+    if !accessibility {
+        permissions::open_accessibility_settings();
+    } else if !input_monitoring {
+        permissions::open_input_monitoring_settings();
+    }
+    HotkeyAccess {
+        accessibility,
+        input_monitoring,
+    }
+}
+
+#[derive(Clone, Serialize)]
+struct SetupTryResult {
+    ok: bool,
+    accessibility: bool,
+    input_monitoring: bool,
+    text: Option<String>,
+    error: Option<String>,
+}
+
+#[tauri::command]
+async fn try_setup_hotkey(app: AppHandle) -> Result<SetupTryResult, String> {
+    let hotkey = app.state::<AppState>().config.lock().hotkey.clone();
+    let access = prompt_hotkey_access(&hotkey);
+    if !access.ready() {
+        return Ok(SetupTryResult {
+            ok: false,
+            accessibility: access.accessibility,
+            input_monitoring: access.input_monitoring,
+            text: None,
+            error: None,
+        });
+    }
+    match test_dictate(app, 3, false).await {
+        Ok(text) if !is_blank_transcription(&text) => Ok(SetupTryResult {
+            ok: true,
+            accessibility: true,
+            input_monitoring: true,
+            text: Some(text),
+            error: None,
+        }),
+        Ok(_) => Ok(SetupTryResult {
+            ok: true,
+            accessibility: true,
+            input_monitoring: true,
+            text: None,
+            error: None,
+        }),
+        Err(e) => Ok(SetupTryResult {
+            ok: false,
+            accessibility: true,
+            input_monitoring: true,
+            text: None,
+            error: Some(e),
+        }),
+    }
 }
 
 #[tauri::command]
@@ -724,7 +811,7 @@ fn load_models(app: &AppHandle) {
         // Refinement is intentionally disabled — not an error.
         *state.llm.lock() = None;
     } else if cfg.llm_model_path.is_empty() {
-        llm_error = Some("No Gemma/LLM model configured. Open Settings → Models.".into());
+        llm_error = Some("No local AI model configured. Open Settings → Models.".into());
         *state.llm.lock() = None;
     } else {
         match LlmEngine::load(std::path::Path::new(&cfg.llm_model_path), inference_threads) {
@@ -833,7 +920,7 @@ fn run_pipeline(app: &AppHandle, samples: Vec<f32>) -> Result<()> {
 
     // Fast path: if refinement is enabled AND fast_paste is on AND we have an
     // LLM loaded, paste the raw transcript immediately so the user sees text
-    // appear with no perceptible delay, then run Gemma in this thread and
+    // appear with no perceptible delay, then run the LLM in this thread and
     // replace the raw text once the refined version is ready (provided it
     // arrived quickly enough that the user hasn't started typing again).
     if let Some(llm) = llm.clone().filter(|_| cfg.fast_paste) {
@@ -1196,7 +1283,8 @@ pub fn run() {
             download_model,
             get_engine_status,
             start_setup,
-            dismiss_setup
+            dismiss_setup,
+            try_setup_hotkey
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1239,6 +1327,25 @@ mod tests {
     fn parses_letter_and_digit_keys() {
         assert!(parse_hotkey("Ctrl+a").is_ok());
         assert!(parse_hotkey("Ctrl+5").is_ok());
+    }
+
+    #[test]
+    fn hotkey_access_ready_requires_both_flags() {
+        assert!(HotkeyAccess {
+            accessibility: true,
+            input_monitoring: true,
+        }
+        .ready());
+        assert!(!HotkeyAccess {
+            accessibility: false,
+            input_monitoring: true,
+        }
+        .ready());
+        assert!(!HotkeyAccess {
+            accessibility: true,
+            input_monitoring: false,
+        }
+        .ready());
     }
 
     // ---- is_blank_transcription ----

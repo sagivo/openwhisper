@@ -6,7 +6,6 @@ import Foundation
 /// Run from repo root, then: npx tauri icon src-tauri/icons/app-icon-source.png
 let emoji = "🤫"
 let size = 1024
-let yellow = NSColor(srgbRed: 1, green: 210 / 255, blue: 61 / 255, alpha: 1) // #ffd23d
 
 let repoRoot = URL(fileURLWithPath: CommandLine.arguments[1])
 let out = repoRoot.appendingPathComponent("src-tauri/icons/app-icon-source.png")
@@ -35,7 +34,7 @@ guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else {
 }
 NSGraphicsContext.current = ctx
 
-yellow.setFill()
+NSColor.clear.setFill()
 NSRect(x: 0, y: 0, width: size, height: size).fill()
 
 let font = NSFont.systemFont(ofSize: CGFloat(size) * 0.62)

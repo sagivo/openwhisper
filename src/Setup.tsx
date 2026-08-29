@@ -20,6 +20,7 @@ interface SetupStatus {
 
 interface ModelProgress {
   key: "whisper" | "llm";
+  filename?: string;
   downloaded: number;
   total: number;
   done: boolean;
@@ -54,12 +55,12 @@ const COPY: Record<
   whisper: {
     kicker: "Speech model",
     title: "Teaching it to hear",
-    body: "Whisper turns your voice into text. About 465 MB, one time.",
+    body: "Downloading Whisper small.en. About 465 MB, one time.",
   },
   llm: {
-    kicker: "Cleanup model",
+    kicker: "Local AI model",
     title: "Teaching it to tidy up",
-    body: "Gemma strips filler words. The large download — then it stays offline.",
+    body: "Downloading Qwen3 4B Instruct 2507. About 2.3 GB, one time.",
   },
   load: {
     kicker: "Warming up",
@@ -83,7 +84,7 @@ type StepId = "whisper" | "llm" | "load" | "permissions";
 function stepsFor(useLlm: boolean): { id: StepId; label: string }[] {
   return [
     { id: "whisper", label: "Speech" },
-    ...(useLlm ? [{ id: "llm" as const, label: "Cleanup" }] : []),
+    ...(useLlm ? [{ id: "llm" as const, label: "Local AI" }] : []),
     { id: "load", label: "Load" },
     { id: "permissions", label: "Access" },
   ];
@@ -284,6 +285,7 @@ export default function Setup() {
             <p className="setup-status">{status}</p>
             {progress && progress.total > 0 && (
               <p className="setup-bytes">
+                {progress.filename ? `${progress.filename} · ` : ""}
                 {formatBytes(progress.downloaded)} of{" "}
                 {formatBytes(progress.total)}
                 {pct !== null ? ` · ${pct}%` : ""}

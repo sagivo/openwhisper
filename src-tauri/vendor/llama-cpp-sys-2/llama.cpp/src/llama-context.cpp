@@ -166,10 +166,9 @@ llama_context::llama_context(
     // up with that op and a non-FGDN_AR name, which trips the assert and
     // calls `abort()`.
     //
-    // We don't load any GDN architectures (Qwen3-Next / Qwen3.5 / Kimi
-    // Linear), so disabling fused GDN entirely is a safe default and
-    // sidesteps the crash. Upstream tracking: PR #20340 introduced this
-    // auto-resolution path and is the source of the assertion.
+    // Qwen3.5 uses Gated Delta Net but still runs on the unfused path
+    // when auto_fgdn is off. We keep it off so Gemma fallbacks don't
+    // abort() at context create. Upstream tracking: PR #20340.
     cparams.fused_gdn_ar = false;
     cparams.fused_gdn_ch = false;
     cparams.auto_fgdn    = false;

@@ -1,4 +1,4 @@
-//! Local LLM (Gemma 4) refinement using llama.cpp bindings.
+//! Local LLM refinement using llama.cpp bindings.
 //!
 //! Loads a GGUF model once, then `refine(raw)` runs a short greedy generation
 //! that rewrites the raw transcription into a clean message.
@@ -43,6 +43,7 @@ use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::{AddBos, LlamaChatMessage, LlamaChatTemplate, LlamaModel};
+use llama_cpp_2::openai::OpenAIChatTemplateParams;
 use llama_cpp_2::sampling::LlamaSampler;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
@@ -159,18 +160,7 @@ impl LlmEngine {
         // delimiters keeps the model from confusing the user instruction with
         // the speech content, which is the same trick we used pre-Gemma-4.
         let user_content = format!("--- TRANSCRIPTION ---\n{raw_trimmed}\n--- END ---");
-        let messages = vec![
-            LlamaChatMessage::new("system".to_string(), sys_trimmed.to_string())
-                .context("build system message")?,
-            LlamaChatMessage::new("user".to_string(), user_content)
-                .context("build user message")?,
-        ];
-
-        // `add_ass = true` appends the assistant-turn opener so the next
-        // sampled token is the model's first reply token.
-        let prompt = model
-            .apply_chat_template(chat_template, &messages, true)
-            .context("apply chat template")?;
+        let prompt = render_prompt(model, chat_template, sys_trimmed, &user_content)?;
 
         // Reset KV cache for a clean single-shot generation. Gemma 4's
         // chat template is too involved to safely cache a per-system-prompt
@@ -242,6 +232,58 @@ impl LlmEngine {
     }
 }
 
+/// Render the GGUF chat template with thinking disabled.
+///
+/// Qwen3.5's Jinja template starts a `<think>` block unless `enable_thinking`
+/// is false. The older C `llama_chat_apply_template` path cannot pass that
+/// flag, so we use the OpenAI/Jinja applicator. If Jinja fails (unusual
+/// GGUF, missing template), fall back to the C applicator.
+fn render_prompt(
+    model: &LlamaModel,
+    chat_template: &LlamaChatTemplate,
+    system_prompt: &str,
+    user_content: &str,
+) -> Result<String> {
+    let messages_json = serde_json::json!([
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ])
+    .to_string();
+
+    let params = OpenAIChatTemplateParams {
+        messages_json: &messages_json,
+        tools_json: None,
+        tool_choice: None,
+        json_schema: None,
+        grammar: None,
+        reasoning_format: None,
+        chat_template_kwargs: Some(r#"{"enable_thinking": false}"#),
+        add_generation_prompt: true,
+        use_jinja: true,
+        parallel_tool_calls: false,
+        enable_thinking: false,
+        add_bos: false,
+        add_eos: false,
+        parse_tool_calls: false,
+    };
+
+    match model.apply_chat_template_oaicompat(chat_template, &params) {
+        Ok(rendered) => Ok(rendered.prompt),
+        Err(e) => {
+            log::warn!("jinja chat template failed ({e}); falling back");
+            let messages = vec![
+                LlamaChatMessage::new("system".to_string(), system_prompt.to_string())
+                    .context("build system message")?,
+                LlamaChatMessage::new("user".to_string(), user_content.to_string())
+                    .context("build user message")?,
+            ];
+            model
+                .apply_chat_template(chat_template, &messages, true)
+                .context("apply chat template")
+        }
+    }
+}
+
 fn clean(s: &str) -> String {
     let s = s.trim();
 
@@ -263,6 +305,14 @@ fn clean(s: &str) -> String {
 }
 
 fn strip_thought_prefix(s: &str) -> &str {
+    // Qwen3 thinking models wrap reasoning in `<think>...</think>`.
+    // Instruct-2507 shouldn't emit this, but strip it if a swapped GGUF does.
+    if let Some(rest) = s.strip_prefix("<think>") {
+        if let Some(end) = rest.find("</think>") {
+            return rest[end + "</think>".len()..].trim_start();
+        }
+    }
+
     // Matches `<|channel>thought\n...<|something|>` style leading thought
     // blocks. We're permissive: if we see a leading `<|channel>` tag we
     // skip everything up to the next `<|` token boundary that isn't part
@@ -327,5 +377,11 @@ mod tests {
     fn clean_strips_gemma4_thought_prefix() {
         let raw = "<|channel>thought\nThe user wants me to clean this up.<|message|>Hello world.";
         assert_eq!(clean(raw), "Hello world.");
+    }
+
+    #[test]
+    fn clean_strips_qwen3_think_block() {
+        let raw = "<think>\nuser said um hello\n</think>\nHello.";
+        assert_eq!(clean(raw), "Hello.");
     }
 }

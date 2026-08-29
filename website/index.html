@@ -219,19 +219,19 @@
         <div>
           <h3>Swap the AI model (the LLM)</h3>
           <p>
-            OpenWhisper uses a small local language model — Gemma by default — to tidy
+            OpenWhisper uses a small local language model — Qwen3 4B Instruct by default — to tidy
             up your words. Want a smarter or lighter one? You can point it at any
             compatible model file (a <code>.gguf</code> file).
           </p>
           <ol class="docs-steps">
             <li>Download a <code>.gguf</code> model (for example from a model hub like Hugging Face).</li>
-            <li>Open <strong>Settings</strong> → find <strong>Gemma Model</strong>.</li>
+            <li>Open <strong>Settings</strong> → find <strong>Local AI model</strong>.</li>
             <li>Click <strong>Browse</strong> and pick your <code>.gguf</code> file.</li>
             <li>Press <strong>Save &amp; Reload</strong>. Done — it's now using your model.</li>
           </ol>
           <p class="docs-tip">
             💡 Tip: smaller models are faster and use less memory; larger ones write
-            more polished text but need a beefier machine. The default Gemma is a great
+            more polished text but need a beefier machine. The default Qwen3 4B Instruct is a great
             balance for most people.
           </p>
         </div>
@@ -249,7 +249,7 @@
           <div class="setting-desc">Hint for what you're speaking — <code>auto</code>, <code>en</code>, <code>es</code>, and so on. Leave it on <code>auto</code> if unsure.</div>
         </div>
         <div class="setting">
-          <div class="setting-name">Refine with Gemma</div>
+          <div class="setting-name">Refine with local AI</div>
           <div class="setting-desc">The cleanup step. On = polished sentences. Turn it off to get the exact words you said, untouched.</div>
         </div>
         <div class="setting">

@@ -114,14 +114,10 @@ h1, h2, h3, .brand, .section-title, .hero-title, .step-num, .hero-stats b {
   font-size: 1.2rem;
 }
 .brand-icon {
-  width: 34px; height: 34px;
   display: grid;
   place-items: center;
-  font-size: 1.25rem;
+  font-size: 1.55rem;
   line-height: 1;
-  border-radius: 9px;
-  border: 2px solid var(--ink);
-  background: var(--yellow);
   transition: transform .2s ease;
 }
 .brand:hover .brand-icon { transform: rotate(-14deg) scale(1.08); }

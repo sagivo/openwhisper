@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Downloads sensible default models for OpenWhisper into ./models/.
 # - Whisper: ggml-small.en.bin (~466 MB), default for regular laptops
-# - Gemma 4 E4B Instruct, Q4_K_M GGUF (~5.0 GB), edge-optimized refiner
+# - Qwen3 4B Instruct 2507, Q4_K_M GGUF (~2.3 GB), local transcript refiner
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")/.." && pwd)/models"
@@ -10,10 +10,10 @@ mkdir -p "$DIR"
 WHISPER_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin"
 WHISPER_OUT="$DIR/ggml-small.en.bin"
 
-# Gemma 4 E4B Instruct (GGUF, Q4_K_M) — unsloth's anonymous-downloadable
-# mirror (the official google/gemma-4-E4B-it and ggml-org repos are gated).
-GEMMA_URL="https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf"
-GEMMA_OUT="$DIR/gemma-4-E4B-it-Q4_K_M.gguf"
+# Qwen3 4B Instruct 2507 (GGUF, Q4_K_M) — unsloth's anonymous-downloadable
+# mirror. Non-thinking instruct checkpoint.
+LLM_URL="https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+LLM_OUT="$DIR/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
 
 fetch() {
   local url="$1" out="$2"
@@ -27,12 +27,12 @@ fetch() {
 }
 
 fetch "$WHISPER_URL" "$WHISPER_OUT"
-fetch "$GEMMA_URL"   "$GEMMA_OUT"
+fetch "$LLM_URL"     "$LLM_OUT"
 
 echo
 echo "Models ready in $DIR"
 echo "  Whisper: $WHISPER_OUT"
-echo "  Gemma:   $GEMMA_OUT"
+echo "  LLM:     $LLM_OUT"
 echo
 echo "Open the Settings window in OpenWhisper and point the model paths there,"
 echo "or copy these paths."

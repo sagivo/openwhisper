@@ -30,7 +30,7 @@ export default function Help() {
       <h2>Getting started</h2>
       <ol className="help-list">
         <li>
-          Open OpenWhisper. The first launch downloads the speech and cleanup
+          Open OpenWhisper. The first launch downloads the speech and local AI
           models and asks for Microphone and Accessibility — no Settings trip
           required.
         </li>
@@ -49,7 +49,7 @@ export default function Help() {
         <li>
           <strong>Release</strong> the hotkey when you're done. OpenWhisper
           transcribes locally with Whisper, then optionally cleans up the
-          text with Gemma.
+          text with a local AI model.
         </li>
         <li>
           The result is <strong>automatically pasted</strong> into the
@@ -91,7 +91,7 @@ export default function Help() {
           detection.
         </li>
         <li>
-          <strong>Refine with Gemma</strong> — runs a small local LLM over
+          <strong>Refine with local AI</strong> — runs a small local LLM over
           the transcript to clean up filler words and punctuation. You can
           tweak the <em>Refinement Prompt</em> to match your style.
         </li>

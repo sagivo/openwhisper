@@ -1,6 +1,6 @@
 //! First-run model download support.
 //!
-//! Downloads default Whisper + Gemma models into the user's data directory
+//! Downloads default Whisper + LLM models into the user's data directory
 //! (`~/Library/Application Support/openwhisper/models` on macOS) and reports
 //! progress to the frontend via Tauri events.
 
@@ -28,20 +28,25 @@ impl ModelKind {
             ModelKind::Whisper => {
                 "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin"
             }
-            // Gemma 4 E4B Instruct, Q4_K_M (~4.98 GB). The unsloth mirror is
-            // anonymous-downloadable (the official `google/gemma-4-E4B-it`
-            // and `ggml-org/gemma-4-E4B-it-GGUF` repos are gated and require
-            // an HF auth token).
+            // Qwen3 4B Instruct 2507, Q4_K_M (~2.3 GB). Dense 4B refiner —
+            // non-thinking by design. Unsloth mirror is anonymous-downloadable.
             ModelKind::Llm => {
-                "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf"
+                "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
             }
         }
     }
 
-    fn filename(self) -> &'static str {
+    pub fn filename(self) -> &'static str {
         match self {
             ModelKind::Whisper => "ggml-small.en.bin",
-            ModelKind::Llm => "gemma-4-E4B-it-Q4_K_M.gguf",
+            ModelKind::Llm => "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            ModelKind::Whisper => "Whisper small.en",
+            ModelKind::Llm => "Qwen3 4B Instruct 2507",
         }
     }
 
@@ -112,6 +117,7 @@ pub fn status_with_config(kind: ModelKind, configured_path: &str) -> ModelStatus
 #[derive(Clone, Serialize)]
 struct ProgressEvent<'a> {
     key: &'a str,
+    filename: &'a str,
     downloaded: u64,
     total: u64,
     done: bool,
@@ -169,6 +175,7 @@ pub async fn download(app: AppHandle, kind: ModelKind) -> Result<PathBuf> {
                 "model-progress",
                 ProgressEvent {
                     key: kind.key(),
+                    filename: kind.filename(),
                     downloaded,
                     total,
                     done: false,
@@ -193,6 +200,7 @@ pub async fn download(app: AppHandle, kind: ModelKind) -> Result<PathBuf> {
         "model-progress",
         ProgressEvent {
             key: kind.key(),
+            filename: kind.filename(),
             downloaded,
             total,
             done: true,

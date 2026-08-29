@@ -268,12 +268,27 @@ button {
     radial-gradient(ellipse 70% 45% at 50% 0%, rgba(124, 108, 255, 0.18), transparent 60%),
     #0b0a10;
 }
+.setup-celebrating {
+  background:
+    radial-gradient(ellipse 90% 55% at 50% -10%, rgba(94, 234, 212, 0.22), transparent 62%),
+    radial-gradient(ellipse 70% 45% at 50% 0%, rgba(124, 108, 255, 0.22), transparent 60%),
+    #0b0a10;
+}
 .setup-card {
+  position: relative;
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   min-height: 0;
+}
+.setup-confetti {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
 }
 .setup-bloom {
   position: relative;
@@ -327,6 +342,38 @@ button {
   letter-spacing: 0.04em;
   text-align: center;
   color: #f5f5f7;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+}
+button.setup-key:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+button.setup-key:active:not(:disabled),
+.setup-bloom.listening .setup-key {
+  transform: translateY(3px);
+  box-shadow:
+    0 0 0 #0a0a0b,
+    0 6px 18px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+button.setup-key:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+.setup-bloom.listening .setup-ring {
+  border-color: rgba(124, 108, 255, 0.55);
+  animation-duration: 1.4s;
+}
+.setup-result {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .setup-hold {
   text-align: center;

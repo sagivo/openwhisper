@@ -106,8 +106,9 @@ export default function Help() {
       <ul className="help-list">
         <li>
           <strong>Nothing happens on the hotkey?</strong> Make sure
-          OpenWhisper has <em>Accessibility</em> permission in{" "}
-          <em>System Settings → Privacy &amp; Security</em>, and that no
+          OpenWhisper has <em>Accessibility</em> and, for{" "}
+          <span className="kbd">Fn</span>, <em>Input Monitoring</em> in{" "}
+          <em>System Settings → Privacy & Security</em>, and that no
           other app is using the same shortcut.
         </li>
         <li>

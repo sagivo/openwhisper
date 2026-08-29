@@ -31,6 +31,28 @@ interface Config {
   use_llm_refinement: boolean;
 }
 
+interface SetupTryResult {
+  ok: boolean;
+  accessibility: boolean;
+  input_monitoring: boolean;
+  text: string | null;
+  error: string | null;
+}
+
+interface StatusEvent {
+  kind: string;
+}
+
+type Trial =
+  | { step: "idle" }
+  | { step: "checking" }
+  | { step: "listening" }
+  | { step: "working" }
+  | { step: "success"; text: string }
+  | { step: "miss" }
+  | { step: "needs-access"; accessibility: boolean; input_monitoring: boolean }
+  | { step: "error"; message: string };
+
 function formatBytes(n: number): string {
   if (n <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB"];
@@ -111,6 +133,16 @@ function stepState(
   return "todo";
 }
 
+function accessCopy(accessibility: boolean, inputMonitoring: boolean): string {
+  if (!accessibility && !inputMonitoring) {
+    return "Allow Accessibility and Input Monitoring in System Settings, then click the key again.";
+  }
+  if (!accessibility) {
+    return "Allow Accessibility in System Settings so OpenWhisper can paste, then click the key again.";
+  }
+  return "Allow Input Monitoring in System Settings so OpenWhisper can hear the key, then click it again.";
+}
+
 function Waveform() {
   return (
     <div className="setup-wave" aria-hidden="true">
@@ -121,22 +153,101 @@ function Waveform() {
   );
 }
 
+function ConfettiBurst({ play }: { play: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (!play) return;
+    const canvas = ref.current;
+    if (!canvas) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const colors = ["#7c6cff", "#a78bfa", "#5eead4", "#f5f5f7", "#f9a8d4"];
+    const pieces = Array.from({ length: 80 }, () => ({
+      x: rect.width * 0.5 + (Math.random() - 0.5) * 36,
+      y: 88,
+      vx: (Math.random() - 0.5) * 10,
+      vy: -5 - Math.random() * 8,
+      w: 4 + Math.random() * 5,
+      h: 6 + Math.random() * 7,
+      rot: Math.random() * Math.PI,
+      vr: (Math.random() - 0.5) * 0.28,
+      color: colors[Math.floor(Math.random() * colors.length)]!,
+    }));
+    const g = 0.17;
+    let raf = 0;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const t = now - t0;
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      for (const p of pieces) {
+        p.vy += g;
+        p.x += p.vx;
+        p.y += p.vy;
+        p.rot += p.vr;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.globalAlpha = Math.max(0, 1 - t / 1700);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      }
+      if (t < 1700) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [play]);
+
+  return <canvas ref={ref} className="setup-confetti" aria-hidden="true" />;
+}
+
 function VoiceBloom({
   phase,
   hotkey,
+  onTry,
+  busy,
+  listening,
 }: {
   phase: "working" | "ready" | "error";
   hotkey: string;
+  onTry?: () => void;
+  busy?: boolean;
+  listening?: boolean;
 }) {
+  const interactive = phase === "ready" && Boolean(onTry);
   return (
-    <div className={`setup-bloom ${phase}`} aria-hidden="true">
+    <div
+      className={`setup-bloom ${phase}${listening ? " listening" : ""}`}
+      aria-hidden={interactive ? undefined : true}
+    >
       <span className="setup-ring r1" />
       <span className="setup-ring r2" />
       <span className="setup-ring r3" />
       {phase === "ready" ? (
-        <div className="setup-key">{hotkey}</div>
+        interactive ? (
+          <button
+            type="button"
+            className="setup-key"
+            onClick={onTry}
+            disabled={busy}
+            aria-label={`Try ${hotkey}`}
+          >
+            {hotkey}
+          </button>
+        ) : (
+          <div className="setup-key">{hotkey}</div>
+        )
       ) : (
-        <span className="setup-mark" aria-hidden="true">{BRAND_EMOJI}</span>
+        <span className="setup-mark" aria-hidden="true">
+          {BRAND_EMOJI}
+        </span>
       )}
     </div>
   );
@@ -150,7 +261,10 @@ export default function Setup() {
   const [useLlm, setUseLlm] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<ModelProgress | null>(null);
+  const [trial, setTrial] = useState<Trial>({ step: "idle" });
+  const [burst, setBurst] = useState(0);
   const running = useRef(false);
+  const trying = useRef(false);
 
   const run = async () => {
     if (running.current) return;
@@ -205,6 +319,15 @@ export default function Setup() {
           setProgress(e.payload);
         })
       );
+      un.push(
+        await listen<StatusEvent>("status", (e) => {
+          if (!trying.current) return;
+          if (e.payload.kind === "recording") setTrial({ step: "listening" });
+          if (e.payload.kind === "transcribing" || e.payload.kind === "refining") {
+            setTrial({ step: "working" });
+          }
+        })
+      );
 
       if (!stop) await run();
     })();
@@ -229,13 +352,94 @@ export default function Setup() {
     }
   };
 
+  const tryHotkey = async () => {
+    if (trying.current) return;
+    trying.current = true;
+    setTrial({ step: "checking" });
+    try {
+      const result = await invoke<SetupTryResult>("try_setup_hotkey");
+      if (!result.accessibility || !result.input_monitoring) {
+        setTrial({
+          step: "needs-access",
+          accessibility: result.accessibility,
+          input_monitoring: result.input_monitoring,
+        });
+        return;
+      }
+      if (result.error) {
+        setTrial({ step: "error", message: result.error });
+        return;
+      }
+      if (result.text) {
+        setTrial({ step: "success", text: result.text });
+        setBurst((n) => n + 1);
+        return;
+      }
+      setTrial({ step: "miss" });
+    } catch (e) {
+      setTrial({ step: "error", message: String(e) });
+    } finally {
+      trying.current = false;
+    }
+  };
+
+  const trialBusy =
+    trial.step === "checking" ||
+    trial.step === "listening" ||
+    trial.step === "working";
+
   const copy =
     phase === "ready"
-      ? {
-          kicker: "You're ready",
-          title: `Hold ${hotkey} and speak`,
-          body: "Release to paste into whatever you were typing. OpenWhisper lives in the menu bar.",
-        }
+      ? trial.step === "checking"
+        ? {
+            kicker: "Checking access",
+            title: `Making sure ${hotkey} works`,
+            body: "macOS will ask if OpenWhisper still needs permission to hear the key.",
+          }
+        : trial.step === "listening"
+          ? {
+              kicker: "Listening",
+              title: "Speak now",
+              body: "Say something. We'll transcribe it here so you know it's working.",
+            }
+          : trial.step === "working"
+            ? {
+                kicker: "Got it",
+                title: "Turning that into text",
+                body: "Speech stays on this computer.",
+              }
+            : trial.step === "success"
+              ? {
+                  kicker: "It works",
+                  title: trial.text,
+                  body: `That's what OpenWhisper heard. Hold ${hotkey} anywhere to dictate.`,
+                }
+              : trial.step === "miss"
+                ? {
+                    kicker: "Didn't catch that",
+                    title: "Try again",
+                    body: `Click ${hotkey} and speak while it listens.`,
+                  }
+                : trial.step === "needs-access"
+                  ? {
+                      kicker: "Permission needed",
+                      title: `Allow access to ${hotkey}`,
+                      body: accessCopy(
+                        trial.accessibility,
+                        trial.input_monitoring
+                      ),
+                    }
+                  : trial.step === "error"
+                    ? {
+                        kicker: "Couldn't hear you",
+                        title: "Try again",
+                        body: trial.message,
+                      }
+                    : {
+                        kicker: "You're ready",
+                        title: `Hold ${hotkey} and speak`,
+                        body: "Click the key to try it here. Release to paste into whatever you were typing. OpenWhisper lives in the menu bar.",
+                      }
       : phase === "error"
         ? {
             kicker: "Couldn't finish",
@@ -245,18 +449,29 @@ export default function Setup() {
         : COPY[stage === "error" || stage === "ready" ? "starting" : stage];
 
   return (
-    <div className={`setup setup-${phase}`}>
+    <div
+      className={`setup setup-${phase}${trial.step === "success" ? " setup-celebrating" : ""}`}
+    >
       <div className="setup-card">
-        <VoiceBloom phase={phase} hotkey={hotkey} />
-        {phase === "working" && <Waveform />}
-        {phase === "ready" && (
+        {burst > 0 && <ConfettiBurst play={burst} />}
+        <VoiceBloom
+          phase={phase}
+          hotkey={hotkey}
+          onTry={phase === "ready" ? tryHotkey : undefined}
+          busy={trialBusy}
+          listening={trial.step === "listening"}
+        />
+        {(phase === "working" || trial.step === "listening") && <Waveform />}
+        {phase === "ready" && !trialBusy && (
           <p className="setup-hold" aria-hidden="true">
             hold to talk
           </p>
         )}
 
         <p className="setup-kicker">{copy.kicker}</p>
-        <h1>{copy.title}</h1>
+        <h1 className={trial.step === "success" ? "setup-result" : undefined}>
+          {copy.title}
+        </h1>
         <p className="setup-copy">{copy.body}</p>
 
         {phase === "working" && (
@@ -295,7 +510,7 @@ export default function Setup() {
         )}
 
         {phase === "ready" && (
-          <button className="btn setup-done" onClick={dismiss}>
+          <button className="btn setup-done" onClick={dismiss} disabled={trialBusy}>
             Start dictating
           </button>
         )}

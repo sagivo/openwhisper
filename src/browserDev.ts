@@ -130,6 +130,14 @@ export function installBrowserMocks() {
         throw new Error("Model download needs the desktop app (`npm run tauri dev`).");
       case "test_dictate":
         throw new Error("Dictation needs the desktop app (`npm run tauri dev`).");
+      case "app_version":
+        return { current: "0.0.0-dev", latest: null, update_available: false, ready: false };
+      case "pending_update":
+        return null;
+      case "check_for_updates":
+        return { current: "0.0.0-dev", latest: "0.0.0-dev", update_available: false, ready: false };
+      case "relaunch_app":
+        return null;
       default:
         return null;
     }

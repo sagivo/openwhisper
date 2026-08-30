@@ -87,6 +87,12 @@ pub struct AppState {
     /// monitor. `None` until the first load/use — models never load eagerly
     /// at startup, so there's nothing to unload before then.
     last_activity: Mutex<Option<Instant>>,
+    /// Version string of an update that has been downloaded and is waiting
+    /// for a restart. `None` until the updater finishes installing.
+    pending_update: Mutex<Option<String>>,
+    /// Tray item / menu used to offer a restart once an update is staged.
+    restart_item: Mutex<Option<tauri::menu::MenuItem<tauri::Wry>>>,
+    tray_menu: Mutex<Option<tauri::menu::Menu<tauri::Wry>>>,
 }
 
 impl AppState {
@@ -101,6 +107,9 @@ impl AppState {
             engine_status: Mutex::new(EngineStatus::default()),
             last_tray_tooltip: Mutex::new(""),
             last_activity: Mutex::new(None),
+            pending_update: Mutex::new(None),
+            restart_item: Mutex::new(None),
+            tray_menu: Mutex::new(None),
         }
     }
 }
@@ -574,122 +583,114 @@ fn show_window(app: &AppHandle, label: &str) {
     }
 }
 
-/// Version metadata. `latest` is `None` until a successful update check; on
-/// success it holds the most recent published GitHub release tag.
+/// Version metadata returned to Settings / About.
 #[derive(Clone, Serialize)]
 struct VersionInfo {
     current: String,
     latest: Option<String>,
     update_available: bool,
-    /// URL of the latest release page, when known. Lets the UI offer a
-    /// "Download update" button that opens the browser.
-    release_url: Option<String>,
+    /// True after the native updater has downloaded and staged the new app.
+    ready: bool,
 }
 
-/// GitHub repo to query for releases. Override at build time via
-/// `OPENWHISPER_RELEASE_REPO=owner/name` if you fork. Falls back to a
-/// placeholder which makes the update check no-op gracefully.
-const RELEASE_REPO: Option<&str> = option_env!("OPENWHISPER_RELEASE_REPO");
+fn current_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
 
-/// Process-lifetime HTTP client. Building a `reqwest::Client` allocates a TLS
-/// context and connection pool; sharing one instance avoids recreating them on
-/// every update check.
-static HTTP_CLIENT: once_cell::sync::Lazy<reqwest::Client> = once_cell::sync::Lazy::new(|| {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()
-        .expect("failed to build HTTP client")
-});
-
-#[tauri::command]
-fn app_version() -> VersionInfo {
+fn version_info(latest: Option<String>, update_available: bool, ready: bool) -> VersionInfo {
     VersionInfo {
-        current: env!("CARGO_PKG_VERSION").to_string(),
-        latest: None,
-        update_available: false,
-        release_url: None,
+        current: current_version(),
+        latest,
+        update_available,
+        ready,
     }
 }
 
 #[tauri::command]
-async fn check_for_updates() -> Result<VersionInfo, String> {
-    let current = env!("CARGO_PKG_VERSION").to_string();
+fn app_version(state: State<AppState>) -> VersionInfo {
+    if let Some(latest) = state.pending_update.lock().clone() {
+        return version_info(Some(latest), true, true);
+    }
+    version_info(None, false, false)
+}
 
-    let Some(repo) = RELEASE_REPO else {
-        // No repo wired up at build time — quietly report no update.
-        return Ok(VersionInfo {
-            current,
-            latest: None,
-            update_available: false,
-            release_url: None,
-        });
+#[tauri::command]
+fn pending_update(state: State<AppState>) -> Option<String> {
+    state.pending_update.lock().clone()
+}
+
+#[tauri::command]
+fn relaunch_app(app: AppHandle) {
+    tauri::process::restart(&app.env());
+}
+
+#[tauri::command]
+async fn check_for_updates(app: AppHandle) -> Result<VersionInfo, String> {
+    run_updater(&app).await
+}
+
+const UPDATE_CHECK_DELAY: Duration = Duration::from_secs(30);
+const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
+
+fn spawn_updater(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(UPDATE_CHECK_DELAY).await;
+        loop {
+            if app.state::<AppState>().pending_update.lock().is_some() {
+                break;
+            }
+            if let Err(e) = run_updater(&app).await {
+                log::warn!("update check failed: {e}");
+            }
+            if app.state::<AppState>().pending_update.lock().is_some() {
+                break;
+            }
+            tokio::time::sleep(UPDATE_CHECK_INTERVAL).await;
+        }
+    });
+}
+
+async fn run_updater(app: &AppHandle) -> Result<VersionInfo, String> {
+    if let Some(latest) = app.state::<AppState>().pending_update.lock().clone() {
+        return Ok(version_info(Some(latest), true, true));
+    }
+
+    if cfg!(debug_assertions) {
+        return Ok(version_info(Some(current_version()), false, false));
+    }
+
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app.updater().map_err(|e| format!("updater: {e}"))?;
+    let Some(update) = updater
+        .check()
+        .await
+        .map_err(|e| format!("update check: {e}"))?
+    else {
+        return Ok(version_info(Some(current_version()), false, false));
     };
 
-    let url = format!("https://api.github.com/repos/{repo}/releases/latest");
-    let resp = HTTP_CLIENT
-        .get(&url)
-        .header("User-Agent", format!("openwhisper/{current}"))
-        .header("Accept", "application/vnd.github+json")
-        .send()
+    let latest = update.version.clone();
+    log::info!("downloading update v{latest}");
+    update
+        .download_and_install(|_, _| {}, || {})
         .await
-        .map_err(|e| format!("github request: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("github status: {}", resp.status()));
-    }
-
-    #[derive(serde::Deserialize)]
-    struct Release {
-        tag_name: String,
-        html_url: String,
-        #[serde(default)]
-        draft: bool,
-        #[serde(default)]
-        prerelease: bool,
-    }
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| format!("read release body: {e}"))?;
-    let release: Release =
-        serde_json::from_str(&body).map_err(|e| format!("parse release: {e}"))?;
-    if release.draft || release.prerelease {
-        return Ok(VersionInfo {
-            current,
-            latest: None,
-            update_available: false,
-            release_url: None,
-        });
-    }
-
-    let latest = release.tag_name.trim_start_matches('v').to_string();
-    let update_available = is_newer(&latest, &current);
-    Ok(VersionInfo {
-        current,
-        latest: Some(latest),
-        update_available,
-        release_url: Some(release.html_url),
-    })
+        .map_err(|e| format!("update install: {e}"))?;
+    mark_update_ready(app, &latest);
+    Ok(version_info(Some(latest), true, true))
 }
 
-/// Crude semver comparison: split on '.', compare numerically, fall back to
-/// lexicographic for non-numeric parts. Avoids pulling in a full semver crate
-/// for what's effectively a 5-line job.
-fn is_newer(latest: &str, current: &str) -> bool {
-    fn parts(s: &str) -> Vec<u64> {
-        s.split(['.', '-', '+'])
-            .filter_map(|p| p.parse::<u64>().ok())
-            .collect()
+fn mark_update_ready(app: &AppHandle, version: &str) {
+    let state = app.state::<AppState>();
+    *state.pending_update.lock() = Some(version.to_string());
+    if let (Some(item), Some(menu)) = (
+        state.restart_item.lock().as_ref(),
+        state.tray_menu.lock().as_ref(),
+    ) {
+        let _ = item.set_enabled(true);
+        let _ = item.set_text(format!("Restart to install v{version}"));
+        let _ = menu.insert(item, 2);
     }
-    let a = parts(latest);
-    let b = parts(current);
-    for i in 0..a.len().max(b.len()) {
-        let av = *a.get(i).unwrap_or(&0);
-        let bv = *b.get(i).unwrap_or(&0);
-        if av != bv {
-            return av > bv;
-        }
-    }
-    false
+    let _ = app.emit("update-ready", version);
 }
 
 // ---------------------------------------------------------------------------
@@ -1410,6 +1411,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -1449,6 +1451,8 @@ pub fn run() {
             let dictate_item =
                 MenuItem::with_id(app, "dictate", "Start / Stop Dictation", true, None::<&str>)?;
             let open_item = MenuItem::with_id(app, "open", "Open Settings…", true, None::<&str>)?;
+            let restart_item =
+                MenuItem::with_id(app, "restart-update", "Restart to Update", false, None::<&str>)?;
             let help_item = MenuItem::with_id(app, "help", "Help", true, None::<&str>)?;
             let about_item =
                 MenuItem::with_id(app, "about", "About OpenWhisper", true, None::<&str>)?;
@@ -1467,6 +1471,8 @@ pub fn run() {
                     &quit_item,
                 ],
             )?;
+            *handle.state::<AppState>().restart_item.lock() = Some(restart_item);
+            *handle.state::<AppState>().tray_menu.lock() = Some(menu.clone());
             #[allow(unused_mut)]
             let mut tray_builder = TrayIconBuilder::with_id(TRAY_ID);
             // macOS shows the white template 🤫 emoji; the OS tints it to
@@ -1493,6 +1499,11 @@ pub fn run() {
                 .on_menu_event(move |app, event| match event.id().as_ref() {
                     "dictate" => toggle_dictation(app),
                     "open" => open_settings(app.clone()),
+                    "restart-update" => {
+                        if app.state::<AppState>().pending_update.lock().is_some() {
+                            tauri::process::restart(&app.env());
+                        }
+                    }
                     "about" => open_about(app.clone()),
                     "help" => open_help(app.clone()),
                     "quit" => app.exit(0),
@@ -1523,6 +1534,10 @@ pub fn run() {
                 show_window(&handle, "setup");
             }
 
+            if !cfg!(debug_assertions) {
+                spawn_updater(handle.clone());
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1543,6 +1558,8 @@ pub fn run() {
             open_help,
             app_version,
             check_for_updates,
+            pending_update,
+            relaunch_app,
             test_dictate,
             list_models,
             check_mic,
@@ -1638,32 +1655,6 @@ mod tests {
     fn blank_transcription_passes_real_text() {
         assert!(!is_blank_transcription("hello world"));
         assert!(!is_blank_transcription("[hello]")); // bracketed real content
-    }
-
-    // ---- is_newer ----
-
-    #[test]
-    fn semver_basic_comparisons() {
-        assert!(is_newer("0.2.0", "0.1.0"));
-        assert!(is_newer("1.0.0", "0.9.99"));
-        assert!(!is_newer("0.1.0", "0.1.0"));
-        assert!(!is_newer("0.1.0", "0.2.0"));
-    }
-
-    #[test]
-    fn semver_handles_v_prefix_already_stripped() {
-        // is_newer is called after we strip 'v', so it never sees one. Make
-        // sure plain numeric strings work.
-        assert!(is_newer("1.2.3", "1.2.2"));
-    }
-
-    #[test]
-    fn semver_ignores_non_numeric_suffixes() {
-        // "1.2.3-rc.1" parses to [1, 2, 3, 1] which is treated as newer than
-        // "1.2.3" → [1, 2, 3]. That's a known limitation of our crude
-        // comparator and is fine for the update-check use case (we already
-        // skip prereleases at the API layer).
-        assert!(is_newer("1.2.3-rc.1", "1.2.3"));
     }
 
     #[test]

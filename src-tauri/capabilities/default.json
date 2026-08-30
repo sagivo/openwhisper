@@ -20,6 +20,7 @@
     "global-shortcut:allow-is-registered",
     "core:tray:default",
     "core:tray:allow-set-icon",
-    "core:tray:allow-set-icon-as-template"
+    "core:tray:allow-set-icon-as-template",
+    "updater:default"
   ]
 }

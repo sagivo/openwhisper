@@ -9,6 +9,20 @@ interface VersionInfo {
   current: string;
   latest: string | null;
   update_available: boolean;
+  ready: boolean;
+}
+
+function updateStatusMessage(info: VersionInfo): string {
+  if (info.ready && info.latest) {
+    return `v${info.latest} downloaded. Restart to install.`;
+  }
+  if (info.update_available && info.latest) {
+    return `Update available: v${info.latest}`;
+  }
+  if (info.latest) {
+    return "You're on the latest version.";
+  }
+  return "Couldn't determine the latest version.";
 }
 
 export default function About() {
@@ -26,11 +40,7 @@ export default function About() {
     try {
       const next = await invoke<VersionInfo>("check_for_updates");
       setInfo(next);
-      if (next.update_available && next.latest) {
-        setMessage(`Update available: v${next.latest}`);
-      } else {
-        setMessage("You're on the latest version.");
-      }
+      setMessage(updateStatusMessage(next));
     } catch (e) {
       setMessage("Update check failed: " + String(e));
     } finally {

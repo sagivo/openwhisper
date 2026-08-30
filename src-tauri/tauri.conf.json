@@ -46,5 +46,12 @@
       "entitlements": "entitlements.plist"
     }
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEExQUQ3Q0UzRTgyNDMxQzMKUldURE1TVG80M3l0b1lHNHdnWjlLWnNpODVRUEZlOEI2RlpHY0ZDK0ZhUzJEY2FKNnJTakFTcUkK",
+      "endpoints": [
+        "https://github.com/sagivo/openwhisper/releases/latest/download/latest.json"
+      ]
+    }
+  }
 }

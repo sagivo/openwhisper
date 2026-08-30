@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-shell";
 
 interface Config {
   hotkey: string;
@@ -22,7 +21,20 @@ interface VersionInfo {
   current: string;
   latest: string | null;
   update_available: boolean;
-  release_url: string | null;
+  ready: boolean;
+}
+
+function updateStatusMessage(info: VersionInfo): string {
+  if (info.ready && info.latest) {
+    return `v${info.latest} downloaded. Restart to install.`;
+  }
+  if (info.update_available && info.latest) {
+    return `Update available: v${info.latest}`;
+  }
+  if (info.latest) {
+    return "You're on the latest version.";
+  }
+  return "Couldn't determine the latest version.";
 }
 
 interface EngineStatus {
@@ -90,8 +102,18 @@ export default function Settings() {
     const unEngine = listen<EngineStatus>("engine-status", (e) =>
       setEngine(e.payload)
     );
+    const unUpdate = listen<string>("update-ready", (e) => {
+      setVersion((prev) => ({
+        current: prev?.current ?? "",
+        latest: e.payload,
+        update_available: true,
+        ready: true,
+      }));
+      setUpdateMsg(`v${e.payload} downloaded. Restart to install.`);
+    });
     return () => {
       unEngine.then((fn) => fn());
+      unUpdate.then((fn) => fn());
     };
   }, []);
 
@@ -180,11 +202,7 @@ export default function Settings() {
     try {
       const next = await invoke<VersionInfo>("check_for_updates");
       setVersion(next);
-      setUpdateMsg(
-        next.update_available && next.latest
-          ? `Update available: v${next.latest}`
-          : "You're on the latest version."
-      );
+      setUpdateMsg(updateStatusMessage(next));
     } catch (e) {
       setUpdateMsg("Update check failed: " + String(e));
     } finally {
@@ -296,16 +314,9 @@ export default function Settings() {
         <div className="section-body">
           <div className="version-line">
             <span className="about-value">v{version?.current ?? "…"}</span>
-            {version?.update_available && version.release_url && (
-              <button
-                className="btn small"
-                onClick={() =>
-                  open(version.release_url!).catch(() =>
-                    window.open(version.release_url!, "_blank")
-                  )
-                }
-              >
-                Download v{version.latest}
+            {version?.ready && (
+              <button className="btn small" onClick={() => invoke("relaunch_app")}>
+                Restart to install v{version.latest}
               </button>
             )}
           </div>

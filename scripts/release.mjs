@@ -19,7 +19,7 @@
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, stat, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -110,7 +110,22 @@ await run('ditto', ['-c', '-k', '--keepParent', appPath, zipPath]);
 step('Verifying signed artifacts');
 await verifyReleaseArtifacts({ appPath, dmgPath, skipNotarize: opts.skipNotarize });
 
-const uploadFiles = [dmgPath, zipPath];
+const tarName = `${productName}_${version}_${tauriArch}.app.tar.gz`;
+const tarPath = path.join(dmgBundleDir, tarName);
+const latestPath = path.join(dmgBundleDir, 'latest.json');
+await writeUpdaterArtifacts({
+  appPath,
+  macosBundleDir,
+  productName,
+  tarPath,
+  latestPath,
+  version,
+  tag,
+  repo,
+  tauriArch,
+});
+
+const uploadFiles = [dmgPath, zipPath, tarPath, latestPath];
 await assertArtifactsExist(uploadFiles);
 
 if (opts.noUpload) {
@@ -237,6 +252,12 @@ Options:
   --no-upload               Build + verify locally, but skip tag/release upload.
   --allow-non-main          Permit releasing from a branch other than main.
   --skip-git-check          Skip clean-worktree and branch checks.
+
+Updater signing:
+  The native updater needs a minisign keypair. Public key lives in
+  src-tauri/tauri.conf.json; the private key is read from
+  TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PATH, or
+  ~/.tauri/openwhisper.key.
 `);
 }
 
@@ -402,6 +423,44 @@ async function duMb(file) {
     fail(`Could not determine size for ${rel(file)}.`);
   }
   return kb / 1024;
+}
+
+async function writeUpdaterArtifacts(input) {
+  const keyPath = resolveUpdaterKeyPath();
+  step('Creating updater archive');
+  await rm(input.tarPath, { force: true });
+  await rm(`${input.tarPath}.sig`, { force: true });
+  await run('tar', ['-czf', input.tarPath, '-C', input.macosBundleDir, `${input.productName}.app`]);
+
+  step('Signing updater archive');
+  const signArgs = ['tauri', 'signer', 'sign', input.tarPath];
+  if (keyPath) signArgs.splice(3, 0, '-f', keyPath);
+  await run('npx', signArgs);
+
+  const sig = (await readFile(`${input.tarPath}.sig`, 'utf8')).trim();
+  if (!sig) fail(`Updater signature missing at ${rel(input.tarPath)}.sig`);
+  const platform = input.tauriArch === 'x64' ? 'darwin-x86_64' : 'darwin-aarch64';
+  const latest = {
+    version: input.version,
+    notes: `${input.productName} ${input.version}`,
+    pub_date: new Date().toISOString(),
+    platforms: {
+      [platform]: {
+        signature: sig,
+        url: `https://github.com/${input.repo}/releases/download/${input.tag}/${path.basename(input.tarPath)}`,
+      },
+    },
+  };
+  await writeFile(input.latestPath, `${JSON.stringify(latest, null, 2)}\n`);
+}
+
+function resolveUpdaterKeyPath() {
+  if (process.env.TAURI_SIGNING_PRIVATE_KEY) return null;
+  const keyPath = process.env.TAURI_SIGNING_PRIVATE_KEY_PATH || path.join(os.homedir(), '.tauri', 'openwhisper.key');
+  if (!existsSync(keyPath)) {
+    fail(`Missing updater signing key at ${keyPath}. Generate with: npx tauri signer generate -w ~/.tauri/openwhisper.key`);
+  }
+  return keyPath;
 }
 
 async function verifyReleaseArtifacts({ appPath, dmgPath, skipNotarize = false }) {

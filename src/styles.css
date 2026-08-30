@@ -21,6 +21,31 @@ body,
   overflow: hidden;
 }
 
+.app-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.app-shell-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #1d4ed8;
+  color: #fff;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.update-banner .btn {
+  background: #0f172a;
+}
+
 button {
   font: inherit;
   color: inherit;

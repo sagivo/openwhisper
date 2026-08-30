@@ -78,7 +78,7 @@ const buildArgs = ['tauri', 'build'];
 if (opts.features) buildArgs.push('--features', opts.features);
 await run('npx', buildArgs, {
   cwd: root,
-  env: { ...process.env, APPLE_SIGNING_IDENTITY: signingIdentity },
+  env: { ...updaterSigningEnv(), APPLE_SIGNING_IDENTITY: signingIdentity },
 });
 
 await assertArtifactsExist([appPath]);
@@ -426,8 +426,10 @@ async function duMb(file) {
 }
 
 async function writeUpdaterArtifacts(input) {
+  // Tauri's createUpdaterArtifacts tarball is built before notarize+staple.
+  // Rebuild from the stapled .app so Gatekeeper sees a ticketed bundle.
   const keyPath = resolveUpdaterKeyPath();
-  step('Creating updater archive');
+  step('Creating updater archive from stapled .app');
   await rm(input.tarPath, { force: true });
   await rm(`${input.tarPath}.sig`, { force: true });
   await run('tar', ['-czf', input.tarPath, '-C', input.macosBundleDir, `${input.productName}.app`]);
@@ -435,32 +437,70 @@ async function writeUpdaterArtifacts(input) {
   step('Signing updater archive');
   const signArgs = ['tauri', 'signer', 'sign', input.tarPath];
   if (keyPath) signArgs.splice(3, 0, '-f', keyPath);
-  await run('npx', signArgs);
+  await run('npx', signArgs, { env: updaterSigningEnv() });
 
   const sig = (await readFile(`${input.tarPath}.sig`, 'utf8')).trim();
   if (!sig) fail(`Updater signature missing at ${rel(input.tarPath)}.sig`);
   const platform = input.tauriArch === 'x64' ? 'darwin-x86_64' : 'darwin-aarch64';
+  const platforms = {
+    ...(await existingUpdaterPlatforms(input.repo, input.tag, input.version)),
+    [platform]: {
+      signature: sig,
+      url: `https://github.com/${input.repo}/releases/download/${input.tag}/${path.basename(input.tarPath)}`,
+    },
+  };
   const latest = {
     version: input.version,
     notes: `${input.productName} ${input.version}`,
     pub_date: new Date().toISOString(),
-    platforms: {
-      [platform]: {
-        signature: sig,
-        url: `https://github.com/${input.repo}/releases/download/${input.tag}/${path.basename(input.tarPath)}`,
-      },
-    },
+    platforms,
   };
   await writeFile(input.latestPath, `${JSON.stringify(latest, null, 2)}\n`);
 }
 
+function updaterSigningEnv() {
+  const env = { ...process.env };
+  if (env.TAURI_SIGNING_PRIVATE_KEY) return env;
+  const keyPath = resolveUpdaterKeyPath();
+  env.TAURI_SIGNING_PRIVATE_KEY = keyPath;
+  env.TAURI_SIGNING_PRIVATE_KEY_PATH = keyPath;
+  return env;
+}
+
 function resolveUpdaterKeyPath() {
-  if (process.env.TAURI_SIGNING_PRIVATE_KEY) return null;
-  const keyPath = process.env.TAURI_SIGNING_PRIVATE_KEY_PATH || path.join(os.homedir(), '.tauri', 'openwhisper.key');
+  if (process.env.TAURI_SIGNING_PRIVATE_KEY && !existsSync(process.env.TAURI_SIGNING_PRIVATE_KEY)) {
+    return null;
+  }
+  const keyPath =
+    process.env.TAURI_SIGNING_PRIVATE_KEY_PATH ||
+    (existsSync(process.env.TAURI_SIGNING_PRIVATE_KEY || '')
+      ? process.env.TAURI_SIGNING_PRIVATE_KEY
+      : path.join(os.homedir(), '.tauri', 'openwhisper.key'));
   if (!existsSync(keyPath)) {
     fail(`Missing updater signing key at ${keyPath}. Generate with: npx tauri signer generate -w ~/.tauri/openwhisper.key`);
   }
   return keyPath;
+}
+
+async function existingUpdaterPlatforms(repo, tag, version) {
+  const tmp = await mkdtemp(path.join(os.tmpdir(), 'openwhisper-latest.'));
+  try {
+    const downloaded = await run(
+      'gh',
+      ['release', 'download', tag, '--repo', repo, '--pattern', 'latest.json', '--dir', tmp, '--clobber'],
+      { check: false, capture: true, quiet: true },
+    );
+    if (downloaded.code !== 0) return {};
+    const latest = JSON.parse(await readFile(path.join(tmp, 'latest.json'), 'utf8'));
+    const latestVersion = String(latest.version ?? '').replace(/^v/, '');
+    if (latestVersion !== String(version).replace(/^v/, '')) return {};
+    if (!latest.platforms || typeof latest.platforms !== 'object') return {};
+    return latest.platforms;
+  } catch {
+    return {};
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
 }
 
 async function verifyReleaseArtifacts({ appPath, dmgPath, skipNotarize = false }) {

@@ -102,6 +102,15 @@ export default function Settings() {
     const unEngine = listen<EngineStatus>("engine-status", (e) =>
       setEngine(e.payload)
     );
+    const unAvailable = listen<string>("update-available", (e) => {
+      setVersion((prev) => ({
+        current: prev?.current ?? "",
+        latest: e.payload,
+        update_available: true,
+        ready: false,
+      }));
+      setUpdateMsg(`Downloading v${e.payload}…`);
+    });
     const unUpdate = listen<string>("update-ready", (e) => {
       setVersion((prev) => ({
         current: prev?.current ?? "",
@@ -113,6 +122,7 @@ export default function Settings() {
     });
     return () => {
       unEngine.then((fn) => fn());
+      unAvailable.then((fn) => fn());
       unUpdate.then((fn) => fn());
     };
   }, []);

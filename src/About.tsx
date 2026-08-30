@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-shell";
 import { BRAND_EMOJI } from "./brand";
 
@@ -32,6 +33,28 @@ export default function About() {
 
   useEffect(() => {
     invoke<VersionInfo>("app_version").then(setInfo).catch((e) => setMessage(String(e)));
+    const unAvailable = listen<string>("update-available", (e) => {
+      setInfo((prev) => ({
+        current: prev?.current ?? "",
+        latest: e.payload,
+        update_available: true,
+        ready: false,
+      }));
+      setMessage(`Downloading v${e.payload}…`);
+    });
+    const unReady = listen<string>("update-ready", (e) => {
+      setInfo((prev) => ({
+        current: prev?.current ?? "",
+        latest: e.payload,
+        update_available: true,
+        ready: true,
+      }));
+      setMessage(`v${e.payload} downloaded. Restart to install.`);
+    });
+    return () => {
+      unAvailable.then((fn) => fn());
+      unReady.then((fn) => fn());
+    };
   }, []);
 
   const check = async () => {

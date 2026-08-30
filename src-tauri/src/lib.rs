@@ -639,6 +639,11 @@ fn spawn_updater(app: AppHandle) {
             if app.state::<AppState>().pending_update.lock().is_some() {
                 break;
             }
+            // Don't contend with an in-progress dictation for CPU / network.
+            if app.state::<AppState>().recorder.is_recording() {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                continue;
+            }
             if let Err(e) = run_updater(&app).await {
                 log::warn!("update check failed: {e}");
             }
@@ -670,7 +675,8 @@ async fn run_updater(app: &AppHandle) -> Result<VersionInfo, String> {
     };
 
     let latest = update.version.clone();
-    log::info!("downloading update v{latest}");
+    log::info!("update v{latest} available, downloading");
+    let _ = app.emit("update-available", &latest);
     update
         .download_and_install(|_, _| {}, || {})
         .await

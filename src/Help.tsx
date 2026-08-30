@@ -44,7 +44,7 @@ export default function Help() {
       <ol className="help-list">
         <li>
           <strong>Hold</strong> <span className="kbd">{hotkey}</span> and
-          start speaking. The menu bar shows 🤫 while you dictate.
+          start speaking. The menu-bar waveform animates while you dictate.
         </li>
         <li>
           <strong>Release</strong> the hotkey when you're done. OpenWhisper

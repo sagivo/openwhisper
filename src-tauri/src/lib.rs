@@ -14,7 +14,7 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
@@ -23,10 +23,14 @@ use tauri_plugin_global_shortcut::{
 };
 
 const TRAY_ID: &str = "main";
-/// Menu-bar mark. macOS renders this via `NSStatusItem` title so the emoji
-/// is native-sharp in light and dark mode.
-const TRAY_EMOJI: &str = "🤫";
-const TRAY_EMOJI_RECORDING: &str = "🤫●";
+/// Number of embedded recording animation frames (see
+/// `scripts/gen-tray-icons.py`).
+#[cfg(target_os = "macos")]
+const TRAY_REC_FRAMES: usize = 8;
+/// Frame counter for the recording tray animation, advanced by the ~80 ms
+/// `Status::Recording` level updates.
+#[cfg(target_os = "macos")]
+static TRAY_FRAME: AtomicUsize = AtomicUsize::new(0);
 
 use audio::Recorder;
 use llm_engine::LlmEngine;
@@ -1092,28 +1096,61 @@ fn emit_setup_transcript(app: &AppHandle, text: &str) {
 
 /// Mirror the current status onto the menu-bar tray mark.
 ///
-/// `set_title` / `set_tooltip` run only when the text actually changes
-/// (tracked in `AppState::last_tray_tooltip`), so the 80 ms recording
-/// level loop is a no-op after the first tick.
+/// macOS swaps between the idle 🤫 emoji icon and the recording animation
+/// frames (all opaque white template PNGs the OS tints to match the other
+/// menu-bar icons, in light and dark mode). `set_tooltip` runs only when the
+/// text actually changes (tracked in `AppState::last_tray_tooltip`), so the
+/// 80 ms recording level loop is a no-op after the first tick.
 fn update_tray(app: &AppHandle, status: &Status) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return;
     };
-    let (title, tooltip): (&'static str, &'static str) = match status {
-        Status::Idle => (TRAY_EMOJI, "OpenWhisper — click to dictate"),
-        Status::Recording { .. } => (TRAY_EMOJI_RECORDING, "Recording… click to stop"),
-        Status::Transcribing => (TRAY_EMOJI, "Transcribing"),
-        Status::Refining => (TRAY_EMOJI, "Refining"),
-        Status::Injecting => (TRAY_EMOJI, "Pasting"),
-        Status::Error { .. } => (TRAY_EMOJI, "Error — see logs"),
+    let tooltip: &'static str = match status {
+        Status::Idle => "OpenWhisper — click to dictate",
+        Status::Recording { .. } => "Recording… click to stop",
+        Status::Transcribing => "Transcribing",
+        Status::Refining => "Refining",
+        Status::Injecting => "Pasting",
+        Status::Error { .. } => "Error — see logs",
     };
+    #[cfg(target_os = "macos")]
+    {
+        let frame = if matches!(status, Status::Recording { .. }) {
+            Some(TRAY_FRAME.fetch_add(1, Ordering::Relaxed) % TRAY_REC_FRAMES)
+        } else {
+            None
+        };
+        let _ = tray.set_icon(Some(tray_image(frame)));
+    }
     let state = app.state::<AppState>();
     let mut last = state.last_tray_tooltip.lock();
     if *last != tooltip {
         *last = tooltip;
         let _ = tray.set_tooltip(Some(tooltip));
-        let _ = tray.set_title(Some(title));
     }
+}
+
+/// Decode an embedded tray PNG. `frame` selects a recording animation frame;
+/// `None` selects the idle 🤫 emoji. Icons are opaque white so macOS can
+/// treat them as template images.
+#[cfg(target_os = "macos")]
+fn tray_image(frame: Option<usize>) -> tauri::image::Image<'static> {
+    const IDLE: &[u8] = include_bytes!("../icons/tray-emoji.png");
+    const REC: [&[u8]; TRAY_REC_FRAMES] = [
+        include_bytes!("../icons/tray-mic-rec-00.png"),
+        include_bytes!("../icons/tray-mic-rec-01.png"),
+        include_bytes!("../icons/tray-mic-rec-02.png"),
+        include_bytes!("../icons/tray-mic-rec-03.png"),
+        include_bytes!("../icons/tray-mic-rec-04.png"),
+        include_bytes!("../icons/tray-mic-rec-05.png"),
+        include_bytes!("../icons/tray-mic-rec-06.png"),
+        include_bytes!("../icons/tray-mic-rec-07.png"),
+    ];
+    let bytes = match frame {
+        Some(i) => REC[i % TRAY_REC_FRAMES],
+        None => IDLE,
+    };
+    tauri::image::Image::from_bytes(bytes).expect("embedded tray PNG is valid")
 }
 
 /// Spawn a short-lived thread that emits `Status::Recording` level updates at
@@ -1233,9 +1270,18 @@ pub fn run() {
                 ],
             )?;
             #[allow(unused_mut)]
-            let mut tray_builder = TrayIconBuilder::with_id(TRAY_ID).title(TRAY_EMOJI);
-            // macOS shows the emoji via `title` (native menu-bar text). Other
-            // platforms ignore title and need a raster icon.
+            let mut tray_builder = TrayIconBuilder::with_id(TRAY_ID);
+            // macOS shows the white template 🤫 emoji; the OS tints it to
+            // match the other menu-bar icons in light and dark mode. It
+            // swaps to the waveform animation only while recording (see
+            // `update_tray`). Other platforms fall back to the default app
+            // icon.
+            #[cfg(target_os = "macos")]
+            {
+                tray_builder = tray_builder
+                    .icon(tray_image(None))
+                    .icon_as_template(true);
+            }
             #[cfg(not(target_os = "macos"))]
             if let Some(icon) = app.default_window_icon() {
                 tray_builder = tray_builder.icon(icon.clone());

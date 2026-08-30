@@ -16,9 +16,16 @@ bars, black in light menu bars).
     the frames are cycled at the tray. The frames are derived from a
     moving sine wave so the animation looks continuous.
 
-The Rust tray code (`update_tray` in `lib.rs`) keeps the idle icon static
-and cycles the rec frames while recording. Filenames are stable so the
-embedded `include_bytes!` calls don't churn each time we tweak artwork.
+- tray-emoji.png / @2x.png:
+    Idle icon: the 🤫 app emoji from `icons/icon.png`, rendered as an opaque
+    white template image (dark features like the eyes and mouth become
+    transparent cutouts so the silhouette stays readable after the OS tints
+    it). Used whenever OpenWhisper is not recording.
+
+The Rust tray code (`update_tray` in `lib.rs`) keeps the idle emoji static
+and cycles the rec frames while recording. All icons are template images.
+Filenames are stable so the embedded `include_bytes!` calls don't churn each
+time we tweak artwork.
 
 Run from repo root:  python3 scripts/gen-tray-icons.py
 """
@@ -109,14 +116,61 @@ def _rec_heights(frame: int, total: int, num_bars: int = 5) -> list[float]:
     return heights
 
 
+# Luminance range for the emoji -> white template conversion. Pixels darker
+# than DARK_LUM (eyes, mouth, shadow lines) fade to fully transparent;
+# pixels brighter than FACE_LUM (the yellow face/hand) stay fully opaque
+# white. In between is a smooth ramp that keeps edges looking soft.
+DARK_LUM = 70.0
+FACE_LUM = 160.0
+
+
+def _luminance(r: int, g: int, b: int) -> float:
+    return 0.299 * r + 0.587 * g + 0.114 * b
+
+
+def _draw_emoji(size: int, source: Path) -> Image.Image:
+    """Render the app emoji (`icon.png`) as a white template tray icon.
+
+    Trims transparent padding, then fits the emoji into the canvas with a
+    small margin so it visually matches other menu-bar glyphs. Color is
+    discarded: each pixel becomes opaque white with its alpha scaled by how
+    bright the source pixel was, so dark features turn into cutouts and the
+    silhouette reads as the shushing emoji once the OS tints it.
+    """
+    src = Image.open(source).convert("RGBA")
+    bbox = src.getbbox()
+    if bbox is None:
+        raise SystemExit(f"{source} is fully transparent")
+    src = src.crop(bbox)
+
+    scale = 4  # supersample then downscale for cheap antialiasing
+    canvas = Image.new("RGBA", (size * scale, size * scale), (0, 0, 0, 0))
+    # Fit into ~18/22 of the canvas so the emoji doesn't touch the edges.
+    target = int(size * scale * 18 / 22)
+    fit = src.resize((target, target), Image.LANCZOS)
+
+    px = fit.load()
+    for y in range(fit.height):
+        for x in range(fit.width):
+            r, g, b, a = px[x, y]
+            if a == 0:
+                continue
+            lum = _luminance(r, g, b)
+            t = max(0.0, min(1.0, (lum - DARK_LUM) / (FACE_LUM - DARK_LUM)))
+            px[x, y] = (255, 255, 255, int(a * t))
+
+    canvas.alpha_composite(fit, ((canvas.width - target) // 2, (canvas.height - target) // 2))
+    return canvas.resize((size, size), Image.LANCZOS)
+
+
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Idle icon (used when not recording).
+    # Idle icon (used when not recording): the colored app emoji.
+    emoji_src = OUT_DIR / "icon.png"
     for size, suffix in [(22, ""), (44, "@2x")]:
-        path = OUT_DIR / f"tray-mic-template{suffix}.png"
-        img = _draw_bars(size, IDLE_HEIGHTS, WHITE)
-        img.save(path, format="PNG")
+        path = OUT_DIR / f"tray-emoji{suffix}.png"
+        _draw_emoji(size, emoji_src).save(path, format="PNG")
         print(f"wrote {path} ({size}x{size})")
 
     # Recording animation frames.

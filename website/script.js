@@ -169,7 +169,34 @@ function stopRecording() {
         tClean.classList.add("show");
         typeOut(cleanText, sample.clean, 22, () => {
           if (sendPill) sendPill.hidden = false;
-          startIdle();
+// ----- analytics: download clicks -----
+function trackDownloadCTA(location) {
+  window.posthog?.capture("download_cta_clicked", { location });
+}
+
+// every "Download free" CTA on the page (nav, hero, footer)
+document.querySelectorAll('a[href="#download"]').forEach((el) => {
+  el.addEventListener("click", () => {
+    const loc = el.classList.contains("nav-cta") ? "nav" : el.closest(".hero") ? "hero" : "footer";
+    trackDownloadCTA(loc);
+  });
+});
+
+// the actual download button (GitHub releases)
+const downloadBtn = document.getElementById("downloadBtn");
+if (downloadBtn) {
+  downloadBtn.addEventListener("click", (e) => {
+    window.posthog?.capture("download_clicked", {
+      href: downloadBtn.href,
+      $current_url: window.location.href,
+    });
+    // let the event fire before we navigate to GitHub releases
+    e.preventDefault();
+    setTimeout(() => (window.location.href = downloadBtn.href), 150);
+  });
+}
+
+startIdle();
           if (!userTookOver && !reduceMotion) {
             autoTimer = setTimeout(runDemo, 2800);
           }

@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod config;
+pub mod fn_hotkey;
 pub mod injector;
 pub mod llm_engine;
 pub mod models;
@@ -702,17 +703,26 @@ fn parse_hotkey(s: &str) -> Result<Shortcut> {
 }
 
 fn register_hotkey(app: &AppHandle, hotkey_str: &str) -> Result<()> {
-    let result = (|| -> Result<Shortcut> {
-        let new_shortcut = parse_hotkey(hotkey_str)?;
-        let gs = app.global_shortcut();
-        let state = app.state::<AppState>();
-        if let Some(prev) = state.current_hotkey.lock().take() {
-            let _ = gs.unregister(prev);
-        }
-        gs.register(new_shortcut)?;
-        *state.current_hotkey.lock() = Some(new_shortcut);
-        Ok(new_shortcut)
-    })();
+    fn_hotkey::stop();
+    let gs = app.global_shortcut();
+    let state = app.state::<AppState>();
+    if let Some(prev) = state.current_hotkey.lock().take() {
+        let _ = gs.unregister(prev);
+    }
+
+    let result = if permissions::hotkey_needs_listen_event(hotkey_str) {
+        let app_cb = app.clone();
+        fn_hotkey::start(Arc::new(move |pressed| {
+            on_hotkey_state(&app_cb, pressed);
+        }))
+    } else {
+        (|| -> Result<()> {
+            let new_shortcut = parse_hotkey(hotkey_str)?;
+            gs.register(new_shortcut)?;
+            *state.current_hotkey.lock() = Some(new_shortcut);
+            Ok(())
+        })()
+    };
 
     // Mirror the outcome into engine-status so the Settings UI can surface
     // hotkey conflicts (e.g. another app already owns Cmd+Shift+Space) instead
@@ -734,7 +744,7 @@ fn register_hotkey(app: &AppHandle, hotkey_str: &str) -> Result<()> {
     }
     emit_engine_status(app);
 
-    result.map(|_| ())
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -1026,51 +1036,52 @@ fn run_pipeline(app: &AppHandle, samples: Vec<f32>) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 fn on_hotkey(app: &AppHandle, _shortcut: &Shortcut, event: ShortcutEvent) {
+    on_hotkey_state(app, event.state() == ShortcutState::Pressed);
+}
+
+fn on_hotkey_state(app: &AppHandle, pressed: bool) {
     let state = app.state::<AppState>();
-    match event.state() {
-        ShortcutState::Pressed => {
-            if state.recorder.is_recording() {
-                return;
-            }
-            let max_recording_seconds = state.config.lock().max_recording_seconds;
-            if let Err(e) = state.recorder.start(max_recording_seconds) {
-                emit_status(
-                    app,
-                    Status::Error {
-                        message: e.to_string(),
-                    },
-                );
-                return;
-            }
-            start_level_monitor(app.clone(), state.recorder.clone());
+    if pressed {
+        if state.recorder.is_recording() {
+            return;
         }
-        ShortcutState::Released => {
-            if !state.recorder.is_recording() {
-                return;
-            }
-            match state.recorder.stop() {
-                Ok(samples) => {
-                    if let Some(tx) = state.job_tx.lock().clone() {
-                        if tx.try_send(Job::Process(samples)).is_err() {
-                            log::warn!("pipeline busy; hotkey-triggered recording dropped");
-                            emit_status(
-                                app,
-                                Status::Error {
-                                    message: "Pipeline busy; recording dropped.".into(),
-                                },
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
+        let max_recording_seconds = state.config.lock().max_recording_seconds;
+        if let Err(e) = state.recorder.start(max_recording_seconds) {
+            emit_status(
+                app,
+                Status::Error {
+                    message: e.to_string(),
+                },
+            );
+            return;
+        }
+        start_level_monitor(app.clone(), state.recorder.clone());
+        return;
+    }
+    if !state.recorder.is_recording() {
+        return;
+    }
+    match state.recorder.stop() {
+        Ok(samples) => {
+            if let Some(tx) = state.job_tx.lock().clone() {
+                if tx.try_send(Job::Process(samples)).is_err() {
+                    log::warn!("pipeline busy; hotkey-triggered recording dropped");
                     emit_status(
                         app,
                         Status::Error {
-                            message: e.to_string(),
+                            message: "Pipeline busy; recording dropped.".into(),
                         },
                     );
                 }
             }
+        }
+        Err(e) => {
+            emit_status(
+                app,
+                Status::Error {
+                    message: e.to_string(),
+                },
+            );
         }
     }
 }

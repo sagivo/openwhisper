@@ -15,9 +15,13 @@
 //     key env (APPLE_API_KEY/APPLE_API_KEY_ID/APPLE_API_ISSUER) or Apple ID env
 //     (APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID).
 //   * `gh` authenticated with repo scope for the target GitHub repo.
+//   * The updater signing key password in the login Keychain under the
+//     "openwhisper-updater-key" service (the script offers to save it on
+//     first use; override with TAURI_SIGNING_PRIVATE_KEY_PASSWORD).
 
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline/promises';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -30,6 +34,8 @@ const tauriDir = path.join(root, 'src-tauri');
 const bundleDir = path.join(tauriDir, 'target', 'release', 'bundle');
 const macosBundleDir = path.join(bundleDir, 'macos');
 const dmgBundleDir = path.join(bundleDir, 'dmg');
+
+const UPDATER_KEYCHAIN_SERVICE = 'openwhisper-updater-key';
 
 const opts = parseArgs(process.argv.slice(2));
 if (opts.help) {
@@ -78,7 +84,7 @@ const buildArgs = ['tauri', 'build'];
 if (opts.features) buildArgs.push('--features', opts.features);
 await run('npx', buildArgs, {
   cwd: root,
-  env: { ...updaterSigningEnv(), APPLE_SIGNING_IDENTITY: signingIdentity },
+  env: { ...(await updaterSigningEnv()), APPLE_SIGNING_IDENTITY: signingIdentity },
 });
 
 await assertArtifactsExist([appPath]);
@@ -258,6 +264,9 @@ Updater signing:
   src-tauri/tauri.conf.json; the private key is read from
   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PATH, or
   ~/.tauri/openwhisper.key.
+  The key password is read from TAURI_SIGNING_PRIVATE_KEY_PASSWORD or the
+  login Keychain ("openwhisper-updater-key" service); if absent it is
+  prompted for once and offered to be stored.
 `);
 }
 
@@ -437,7 +446,7 @@ async function writeUpdaterArtifacts(input) {
   step('Signing updater archive');
   const signArgs = ['tauri', 'signer', 'sign', input.tarPath];
   if (keyPath) signArgs.splice(3, 0, '-f', keyPath);
-  await run('npx', signArgs, { env: updaterSigningEnv() });
+  await run('npx', signArgs, { env: await updaterSigningEnv() });
 
   const sig = (await readFile(`${input.tarPath}.sig`, 'utf8')).trim();
   if (!sig) fail(`Updater signature missing at ${rel(input.tarPath)}.sig`);
@@ -458,13 +467,77 @@ async function writeUpdaterArtifacts(input) {
   await writeFile(input.latestPath, `${JSON.stringify(latest, null, 2)}\n`);
 }
 
-function updaterSigningEnv() {
+async function updaterSigningEnv() {
   const env = { ...process.env };
+  if (!env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
+    env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD = await resolveUpdaterKeyPassword();
+  }
   if (env.TAURI_SIGNING_PRIVATE_KEY) return env;
   const keyPath = resolveUpdaterKeyPath();
   env.TAURI_SIGNING_PRIVATE_KEY = keyPath;
   env.TAURI_SIGNING_PRIVATE_KEY_PATH = keyPath;
   return env;
+}
+
+async function resolveUpdaterKeyPassword() {
+  const stored = await run(
+    'security', ['find-generic-password', '-s', UPDATER_KEYCHAIN_SERVICE, '-w'],
+    { capture: true, quiet: true, check: false },
+  );
+  if (stored.code === 0 && stored.stdout.trim()) {
+    return stored.stdout.trim();
+  }
+  const password = await promptHidden('Updater signing key password: ');
+  if (!password) {
+    fail('Updater signing key password required.');
+  }
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = (await rl.question(`Save password in login Keychain (${UPDATER_KEYCHAIN_SERVICE})? [Y/n] `))
+    .trim()
+    .toLowerCase();
+  rl.close();
+  if (answer === '' || answer === 'y' || answer === 'yes') {
+    await run(
+      'security',
+      ['add-generic-password', '-U', '-s', UPDATER_KEYCHAIN_SERVICE, '-a', os.userInfo().username, '-w', password],
+      { capture: true, quiet: true },
+    );
+    console.log(`[release] Password saved to login Keychain (${UPDATER_KEYCHAIN_SERVICE}).`);
+  }
+  return password;
+}
+
+function promptHidden(label) {
+  return new Promise((resolve) => {
+    process.stdout.write(label);
+    const stdin = process.stdin;
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding('utf8');
+    let input = '';
+    const onData = (chunk) => {
+      for (const ch of chunk) {
+        if (ch === '\n' || ch === '\r' || ch === '\u0004') {
+          stdin.setRawMode(false);
+          stdin.removeListener('data', onData);
+          stdin.pause();
+          process.stdout.write('\n');
+          resolve(input);
+          return;
+        }
+        if (ch === '\u0003') {
+          process.stdout.write('\n');
+          process.exit(130);
+        }
+        if (ch === '\u007f' || ch === '\b') {
+          input = input.slice(0, -1);
+        } else {
+          input += ch;
+        }
+      }
+    };
+    stdin.on('data', onData);
+  });
 }
 
 function resolveUpdaterKeyPath() {

@@ -83,18 +83,15 @@ export function installBrowserMocks() {
       case "dismiss_setup":
         return null;
       case "try_setup_hotkey":
+      case "hotkey_press":
+        void emit("status", { kind: "recording", level: 0.4 });
+        return { accessibility: true, input_monitoring: true };
+      case "hotkey_release":
         return (async () => {
-          await emit("status", { kind: "recording", level: 0.4 });
-          await sleep(900);
           await emit("status", { kind: "transcribing" });
-          await sleep(500);
-          return {
-            ok: true,
-            accessibility: true,
-            input_monitoring: true,
-            text: "Hello from OpenWhisper",
-            error: null,
-          };
+          await sleep(400);
+          await emit("dictation-result", "Hello from OpenWhisper");
+          return null;
         })();
       case "get_engine_status":
         return {

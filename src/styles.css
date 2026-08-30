@@ -304,6 +304,7 @@ button {
   border-radius: 50%;
   border: 1px solid rgba(124, 108, 255, 0.28);
   animation: setup-ring 2.8s ease-out infinite;
+  pointer-events: none;
 }
 .setup-ring.r1 { width: 96px; height: 96px; }
 .setup-ring.r2 { width: 128px; height: 128px; animation-delay: 0.55s; }
@@ -346,7 +347,11 @@ button {
   user-select: none;
   transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
 }
-button.setup-key:hover:not(:disabled) {
+.setup-bloom.ready {
+  cursor: pointer;
+}
+button.setup-key:hover:not(:disabled),
+.setup-bloom.ready:hover .setup-key {
   filter: brightness(1.08);
   transform: translateY(-1px);
 }
@@ -405,6 +410,19 @@ button.setup-key:disabled {
 .setup-wave i:nth-child(odd) { height: 14px; }
 .setup-wave i:nth-child(3n) { height: 22px; }
 .setup-wave i:nth-child(4n) { height: 10px; }
+.setup-once {
+  align-self: start;
+  margin: -8px 0 14px;
+  padding: 4px 10px;
+  border-radius: 99px;
+  border: 1px solid rgba(124, 108, 255, 0.34);
+  background: rgba(124, 108, 255, 0.12);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: #c4b8ff;
+}
 .setup-kicker {
   font-size: 11px;
   text-transform: uppercase;

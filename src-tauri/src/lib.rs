@@ -397,6 +397,9 @@ async fn start_setup(app: AppHandle) -> Result<(), String> {
     );
     let hotkey = app.state::<AppState>().config.lock().hotkey.clone();
     let _ = prompt_hotkey_access(&hotkey);
+    if let Err(e) = register_hotkey(&app, &hotkey) {
+        log::error!("failed to register hotkey '{hotkey}' after setup: {e}");
+    }
 
     SETUP_DONE.store(true, Ordering::SeqCst);
     emit_setup(&app, "ready", "Ready");
@@ -433,51 +436,22 @@ fn prompt_hotkey_access(hotkey: &str) -> HotkeyAccess {
     }
 }
 
-#[derive(Clone, Serialize)]
-struct SetupTryResult {
-    ok: bool,
-    accessibility: bool,
-    input_monitoring: bool,
-    text: Option<String>,
-    error: Option<String>,
+#[tauri::command]
+fn hotkey_press(app: AppHandle) -> HotkeyAccess {
+    let hotkey = app.state::<AppState>().config.lock().hotkey.clone();
+    let access = prompt_hotkey_access(&hotkey);
+    if access.ready() {
+        if permissions::hotkey_needs_listen_event(&hotkey) {
+            let _ = register_hotkey(&app, &hotkey);
+        }
+        on_hotkey_state(&app, true);
+    }
+    access
 }
 
 #[tauri::command]
-async fn try_setup_hotkey(app: AppHandle) -> Result<SetupTryResult, String> {
-    let hotkey = app.state::<AppState>().config.lock().hotkey.clone();
-    let access = prompt_hotkey_access(&hotkey);
-    if !access.ready() {
-        return Ok(SetupTryResult {
-            ok: false,
-            accessibility: access.accessibility,
-            input_monitoring: access.input_monitoring,
-            text: None,
-            error: None,
-        });
-    }
-    match test_dictate(app, 3, false).await {
-        Ok(text) if !is_blank_transcription(&text) => Ok(SetupTryResult {
-            ok: true,
-            accessibility: true,
-            input_monitoring: true,
-            text: Some(text),
-            error: None,
-        }),
-        Ok(_) => Ok(SetupTryResult {
-            ok: true,
-            accessibility: true,
-            input_monitoring: true,
-            text: None,
-            error: None,
-        }),
-        Err(e) => Ok(SetupTryResult {
-            ok: false,
-            accessibility: true,
-            input_monitoring: true,
-            text: None,
-            error: Some(e),
-        }),
-    }
+fn hotkey_release(app: AppHandle) {
+    on_hotkey_state(&app, false);
 }
 
 #[tauri::command]
@@ -906,6 +880,7 @@ fn run_pipeline(app: &AppHandle, samples: Vec<f32>) -> Result<()> {
             app,
             "Whisper returned no text (silence-classified or empty).",
         );
+        emit_setup_transcript(app, "");
         emit_status(app, Status::Idle);
         return Ok(());
     }
@@ -914,6 +889,7 @@ fn run_pipeline(app: &AppHandle, samples: Vec<f32>) -> Result<()> {
             app,
             &format!("Whisper produced blank marker '{raw}'; skipping."),
         );
+        emit_setup_transcript(app, "");
         emit_status(app, Status::Idle);
         return Ok(());
     }
@@ -933,7 +909,7 @@ fn run_pipeline(app: &AppHandle, samples: Vec<f32>) -> Result<()> {
     // appear with no perceptible delay, then run the LLM in this thread and
     // replace the raw text once the refined version is ready (provided it
     // arrived quickly enough that the user hasn't started typing again).
-    if let Some(llm) = llm.clone().filter(|_| cfg.fast_paste) {
+    if let Some(llm) = llm.clone().filter(|_| cfg.fast_paste && !setup_visible(app)) {
         let raw_for_paste = raw.clone();
 
         // Capture the user's clipboard BEFORE we touch it (only when restore
@@ -1018,6 +994,13 @@ fn run_pipeline(app: &AppHandle, samples: Vec<f32>) -> Result<()> {
 
     if final_text.trim().is_empty() {
         emit_log(app, "Empty final text; skipping injection.");
+        emit_setup_transcript(app, "");
+        emit_status(app, Status::Idle);
+        return Ok(());
+    }
+
+    emit_setup_transcript(app, &final_text);
+    if setup_visible(app) {
         emit_status(app, Status::Idle);
         return Ok(());
     }
@@ -1093,6 +1076,18 @@ fn on_hotkey_state(app: &AppHandle, pressed: bool) {
 fn emit_status(app: &AppHandle, status: Status) {
     update_tray(app, &status);
     let _ = app.emit("status", status);
+}
+
+fn setup_visible(app: &AppHandle) -> bool {
+    app.get_webview_window("setup")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false)
+}
+
+fn emit_setup_transcript(app: &AppHandle, text: &str) {
+    if setup_visible(app) {
+        let _ = app.emit("dictation-result", text);
+    }
 }
 
 /// Mirror the current status onto the menu-bar tray mark.
@@ -1295,7 +1290,8 @@ pub fn run() {
             get_engine_status,
             start_setup,
             dismiss_setup,
-            try_setup_hotkey
+            hotkey_press,
+            hotkey_release
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

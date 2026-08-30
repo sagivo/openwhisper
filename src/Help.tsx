@@ -108,8 +108,10 @@ export default function Help() {
           <strong>Nothing happens on the hotkey?</strong> Make sure
           OpenWhisper has <em>Accessibility</em> and, for{" "}
           <span className="kbd">Fn</span>, <em>Input Monitoring</em> in{" "}
-          <em>System Settings → Privacy & Security</em>, and that no
-          other app is using the same shortcut.
+          <em>System Settings → Privacy & Security</em>. On Mac, set{" "}
+          <em>Keyboard → Press 🌐 / Fn key to</em> <em>Do Nothing</em> so
+          the OS doesn't steal it. Also check that no other app is using
+          the same shortcut.
         </li>
         <li>
           <strong>Pasting doesn't work in a particular app?</strong> The

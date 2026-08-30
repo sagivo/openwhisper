@@ -86,21 +86,29 @@ await assertArtifactsExist([appPath]);
 step('Verifying Tauri-signed .app');
 await run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath]);
 
-step('Notarizing and stapling the .app');
-await notarizeAndStaple(appPath, notaryArgs);
+if (opts.skipNotarize) {
+  step('Skipping notarization (--skip-notarize)');
+} else {
+  step('Notarizing and stapling the .app');
+  await notarizeAndStaple(appPath, notaryArgs);
+}
 
 step('Rebuilding DMG from the stapled .app');
 await rebuildDmg({ appPath, dmgPath, productName, version, tauriArch, signingIdentity });
 
-step('Notarizing and stapling the DMG');
-await notarizeAndStaple(dmgPath, notaryArgs);
+if (opts.skipNotarize) {
+  step('Skipping DMG notarization (--skip-notarize)');
+} else {
+  step('Notarizing and stapling the DMG');
+  await notarizeAndStaple(dmgPath, notaryArgs);
+}
 
-step('Zipping the stapled .app');
+step('Zipping the .app');
 await rm(zipPath, { force: true });
 await run('ditto', ['-c', '-k', '--keepParent', appPath, zipPath]);
 
-step('Verifying signed + notarized artifacts');
-await verifyReleaseArtifacts({ appPath, dmgPath });
+step('Verifying signed artifacts');
+await verifyReleaseArtifacts({ appPath, dmgPath, skipNotarize: opts.skipNotarize });
 
 const uploadFiles = [dmgPath, zipPath];
 await assertArtifactsExist(uploadFiles);
@@ -133,6 +141,7 @@ function parseArgs(argv) {
     noUpload: false,
     repo: null,
     skipGitCheck: false,
+    skipNotarize: false,
     signingIdentity: null,
     tag: null,
     version: null,
@@ -178,6 +187,9 @@ function parseArgs(argv) {
       case '--skip-git-check':
         out.skipGitCheck = true;
         break;
+      case '--skip-notarize':
+        out.skipNotarize = true;
+        break;
       case '--tag':
         out.tag = readValue(argv, ++i, arg);
         break;
@@ -220,6 +232,7 @@ Options:
   --repo owner/name         GitHub repo. Default: inferred from git remote.
   --signing-identity <id>   Developer ID identity. Default: auto-detected.
   --notary-profile <name>   notarytool keychain profile. Default: openwhisper
+  --skip-notarize           Skip Apple notarization/stapling (sign-only local builds).
   --force-tag               Move an existing tag to HEAD and force-push it.
   --no-upload               Build + verify locally, but skip tag/release upload.
   --allow-non-main          Permit releasing from a branch other than main.
@@ -360,7 +373,7 @@ async function rebuildDmg(input) {
     await run('ditto', ['--rsrc', '--extattr', '--acl', input.appPath, path.join(mount, `${input.productName}.app`)]);
     await symlink('/Applications', path.join(mount, 'Applications'));
     await run('sync', []);
-    await run('hdiutil', ['detach', mount]);
+    await detachDmg(mount);
     attached = false;
 
     await run('hdiutil', ['convert', rwDmg, '-format', 'UDZO', '-imagekey', 'zlib-level=9', '-o', input.dmgPath]);
@@ -373,6 +386,15 @@ async function rebuildDmg(input) {
   }
 }
 
+async function detachDmg(mount) {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const result = await run('hdiutil', ['detach', mount], { check: false, capture: true, quiet: true });
+    if (result.code === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
+  }
+  await run('hdiutil', ['detach', mount, '-force'], { check: false, capture: true, quiet: true });
+}
+
 async function duMb(file) {
   const result = await run('du', ['-sk', file], { capture: true, quiet: true });
   const kb = Number(result.stdout.trim().split(/\s+/)[0]);
@@ -382,12 +404,14 @@ async function duMb(file) {
   return kb / 1024;
 }
 
-async function verifyReleaseArtifacts({ appPath, dmgPath }) {
+async function verifyReleaseArtifacts({ appPath, dmgPath, skipNotarize = false }) {
   await run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath]);
-  await run('xcrun', ['stapler', 'validate', appPath]);
-  await run('xcrun', ['stapler', 'validate', dmgPath]);
-  await run('spctl', ['-a', '-vvv', '-t', 'exec', appPath]);
-  await run('spctl', ['-a', '-vvv', '-t', 'open', '--context', 'context:primary-signature', dmgPath]);
+  if (!skipNotarize) {
+    await run('xcrun', ['stapler', 'validate', appPath]);
+    await run('xcrun', ['stapler', 'validate', dmgPath]);
+    await run('spctl', ['-a', '-vvv', '-t', 'exec', appPath]);
+    await run('spctl', ['-a', '-vvv', '-t', 'open', '--context', 'context:primary-signature', dmgPath]);
+  }
 }
 
 async function prepareTag(tagName, forceTag) {

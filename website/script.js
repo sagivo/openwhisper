@@ -169,34 +169,6 @@ function stopRecording() {
         tClean.classList.add("show");
         typeOut(cleanText, sample.clean, 22, () => {
           if (sendPill) sendPill.hidden = false;
-// ----- analytics: download clicks -----
-function trackDownloadCTA(location) {
-  window.posthog?.capture("download_cta_clicked", { location });
-}
-
-// every "Download free" CTA on the page (nav, hero, footer)
-document.querySelectorAll('a[href="#download"]').forEach((el) => {
-  el.addEventListener("click", () => {
-    const loc = el.classList.contains("nav-cta") ? "nav" : el.closest(".hero") ? "hero" : "footer";
-    trackDownloadCTA(loc);
-  });
-});
-
-// the actual download button (GitHub releases)
-const downloadBtn = document.getElementById("downloadBtn");
-if (downloadBtn) {
-  downloadBtn.addEventListener("click", (e) => {
-    window.posthog?.capture("download_clicked", {
-      href: downloadBtn.href,
-      $current_url: window.location.href,
-    });
-    // let the event fire before we navigate to GitHub releases
-    e.preventDefault();
-    setTimeout(() => (window.location.href = downloadBtn.href), 150);
-  });
-}
-
-startIdle();
           if (!userTookOver && !reduceMotion) {
             autoTimer = setTimeout(runDemo, 2800);
           }
@@ -277,4 +249,187 @@ startIdle();
 
 if (!reduceMotion) {
   autoTimer = setTimeout(runDemo, 1400);
+}
+
+// ----- analytics: download clicks -----
+function trackDownloadCTA(location) {
+  window.posthog?.capture("download_cta_clicked", { location });
+}
+
+document.querySelectorAll('a[href="#download"]').forEach((el) => {
+  el.addEventListener("click", () => {
+    const loc = el.classList.contains("nav-cta") ? "nav" : el.closest(".hero") ? "hero" : "footer";
+    trackDownloadCTA(loc);
+  });
+});
+
+const RELEASES_API = "https://api.github.com/repos/sagivo/openwhisper/releases/latest";
+const RELEASES_PAGE = "https://github.com/sagivo/openwhisper/releases/";
+const ARCH_LABELS = { arm64: "Apple Silicon", x64: "Intel" };
+const ARCH_TOKENS = { arm64: ["aarch64", "arm64"], x64: ["x86_64", "x64", "amd64"] };
+
+function isMacDesktop() {
+  const ua = navigator.userAgent || "";
+  const platform = navigator.platform || "";
+  const uaPlatform = navigator.userAgentData?.platform;
+  if (/iPhone|iPad|iPod/.test(ua)) return false;
+  if (platform === "MacIntel" && navigator.maxTouchPoints > 1) return false;
+  if (uaPlatform) return uaPlatform === "macOS";
+  return /Mac/i.test(platform) || /Mac OS X/i.test(ua);
+}
+
+function webglRenderer() {
+  try {
+    const gl = document.createElement("canvas").getContext("webgl");
+    const ext = gl?.getExtension("WEBGL_debug_renderer_info");
+    return ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || "") : "";
+  } catch {
+    return "";
+  }
+}
+
+async function detectMacArch() {
+  if (navigator.userAgentData?.getHighEntropyValues) {
+    try {
+      const { architecture } = await navigator.userAgentData.getHighEntropyValues(["architecture"]);
+      if (architecture === "arm") return "arm64";
+      if (architecture === "x86") return "x64";
+    } catch {
+      /* fall through */
+    }
+  }
+
+  const renderer = webglRenderer();
+  if (/Apple\s+M\d|Apple GPU|Apple silicon/i.test(renderer)) return "arm64";
+  if (/Intel|AMD|Radeon|NVIDIA/i.test(renderer)) return "x64";
+  if (/Apple/i.test(renderer)) return "arm64";
+
+  return "arm64";
+}
+
+function assetArch(name) {
+  const lower = name.toLowerCase();
+  if (ARCH_TOKENS.arm64.some((token) => lower.includes(token))) return "arm64";
+  if (ARCH_TOKENS.x64.some((token) => lower.includes(token))) return "x64";
+  return null;
+}
+
+function pickDmg(assets, arch) {
+  const dmgs = (assets || []).filter((asset) => /\.dmg$/i.test(asset.name));
+  return dmgs.find((asset) => assetArch(asset.name) === arch) || null;
+}
+
+async function fetchLatestRelease() {
+  const cacheKey = "ow-latest-release";
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(cacheKey) || "");
+    if (cached?.data?.assets && Date.now() - cached.at < 10 * 60 * 1000) return cached.data;
+  } catch {
+    /* ignore */
+  }
+  const res = await fetch(RELEASES_API, { headers: { Accept: "application/vnd.github+json" } });
+  if (!res.ok) throw new Error("release fetch failed");
+  const data = await res.json();
+  try {
+    sessionStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), data }));
+  } catch {
+    /* ignore quota / private mode */
+  }
+  return data;
+}
+
+const downloadBtn = document.getElementById("downloadBtn");
+const downloadBtnLabel = document.getElementById("downloadBtnLabel");
+const downloadAlt = document.getElementById("downloadAlt");
+
+function guestPlatformName() {
+  const platform = navigator.userAgentData?.platform || navigator.platform || "";
+  const ua = navigator.userAgent || "";
+  if (/Win/i.test(platform) || /Windows/i.test(ua)) return "Windows";
+  if (/Android/i.test(ua)) return "Android";
+  if (/iPhone|iPad|iPod/.test(ua) || (platform === "MacIntel" && navigator.maxTouchPoints > 1)) return "iOS";
+  if (/Linux/i.test(platform) || /Linux/i.test(ua)) return "Linux";
+  return null;
+}
+
+function setComingSoon(message) {
+  if (!downloadBtn) return;
+  downloadBtn.href = "#download";
+  downloadBtn.setAttribute("aria-disabled", "true");
+  downloadBtn.dataset.comingSoon = "true";
+  if (downloadBtnLabel) downloadBtnLabel.textContent = "Coming soon";
+  if (downloadAlt) {
+    downloadAlt.hidden = false;
+    downloadAlt.textContent = message;
+  }
+}
+
+if (downloadBtn) {
+  downloadBtn.addEventListener("click", (e) => {
+    if (downloadBtn.dataset.comingSoon === "true") {
+      e.preventDefault();
+      window.posthog?.capture("download_clicked", {
+        href: downloadBtn.href,
+        coming_soon: true,
+        $current_url: window.location.href,
+      });
+      return;
+    }
+    window.posthog?.capture("download_clicked", {
+      href: downloadBtn.href,
+      arch: downloadBtn.dataset.arch || null,
+      $current_url: window.location.href,
+    });
+    e.preventDefault();
+    setTimeout(() => {
+      window.location.href = downloadBtn.href;
+    }, 150);
+  });
+
+  (async () => {
+    if (!isMacDesktop()) {
+      const platform = guestPlatformName();
+      setComingSoon(
+        platform
+          ? `${platform} isn't ready yet — OpenWhisper is macOS-only for now.`
+          : "OpenWhisper is macOS-only for now. Windows and Linux are coming soon."
+      );
+      return;
+    }
+
+    try {
+      const [arch, release] = await Promise.all([detectMacArch(), fetchLatestRelease()]);
+      const matched = pickDmg(release.assets, arch);
+      const otherArch = arch === "arm64" ? "x64" : "arm64";
+      const other = pickDmg(release.assets, otherArch);
+
+      if (matched?.browser_download_url) {
+        downloadBtn.href = matched.browser_download_url;
+        downloadBtn.dataset.arch = arch;
+        if (downloadBtnLabel) {
+          downloadBtnLabel.textContent = `Download free for Mac (${ARCH_LABELS[arch]})`;
+        }
+      }
+
+      if (other?.browser_download_url && downloadAlt) {
+        downloadAlt.hidden = false;
+        downloadAlt.replaceChildren();
+        downloadAlt.append("Need the ", ARCH_LABELS[otherArch], " version instead? ");
+        const link = document.createElement("a");
+        link.href = other.browser_download_url;
+        link.textContent = `Download for ${ARCH_LABELS[otherArch]}`;
+        link.addEventListener("click", () => {
+          window.posthog?.capture("download_clicked", {
+            href: link.href,
+            arch: otherArch,
+            source: "alt",
+            $current_url: window.location.href,
+          });
+        });
+        downloadAlt.append(link);
+      }
+    } catch {
+      downloadBtn.href = RELEASES_PAGE;
+    }
+  })();
 }

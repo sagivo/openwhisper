@@ -489,6 +489,16 @@ h1, h2, h3, .brand, .section-title, .hero-title, .step-num, .hero-stats b {
 .btn-ghost { background: var(--yellow); color: var(--ink); }
 .btn-coffee { background: var(--orange); color: var(--ink); }
 .btn-download { position: relative; }
+.btn[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.72;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.btn[aria-disabled="true"]:hover,
+.btn[aria-disabled="true"]:active {
+  transform: none;
+  box-shadow: 3px 3px 0 var(--ink);
+}
 .sticker-free {
   position: absolute;
   top: -16px; right: -18px;
@@ -870,6 +880,16 @@ h1, h2, h3, .brand, .section-title, .hero-title, .step-num, .hero-stats b {
   font-size: clamp(1.02rem, 2.2vw, 1.22rem);
   max-width: 540px;
   margin: 0 auto;
+}
+.download-alt {
+  margin: 14px auto 0;
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+.download-alt a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 /* ---------- code blocks ---------- */

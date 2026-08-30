@@ -223,6 +223,30 @@ async fn test_dictate(app: AppHandle, seconds: u64, inject: bool) -> Result<Stri
     Ok(final_text)
 }
 
+/// Quick microphone sanity check: opens the default input device, captures a
+/// fraction of a second, and closes it again. Used by the Settings health
+/// check so users get a "mic is connected" verdict without running a full
+/// dictation.
+#[tauri::command]
+async fn check_mic(app: AppHandle) -> Result<(), String> {
+    let rec = app.state::<AppState>().recorder.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        rec.start(1).map_err(|e| e.to_string())?;
+        std::thread::sleep(Duration::from_millis(250));
+        rec.stop().map(|_| ()).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e: String| e)
+}
+
+/// The factory-default refinement prompt, so the Settings UI can offer a
+/// "Reset to default" without duplicating the string in the frontend.
+#[tauri::command]
+fn default_prompt() -> String {
+    config::DEFAULT_REFINE_PROMPT.to_string()
+}
+
 #[tauri::command]
 fn list_models(state: State<AppState>) -> Vec<models::ModelStatus> {
     let cfg = state.config.lock().clone();
@@ -1332,6 +1356,8 @@ pub fn run() {
             check_for_updates,
             test_dictate,
             list_models,
+            check_mic,
+            default_prompt,
             download_model,
             get_engine_status,
             start_setup,

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-shell";
 
 interface Config {
   hotkey: string;
@@ -15,20 +16,11 @@ interface Config {
   inference_threads: number;
 }
 
-interface ModelStatus {
-  key: "whisper" | "llm";
-  filename: string;
-  path: string;
-  exists: boolean;
-  size: number;
-}
-
-interface ModelProgress {
-  key: "whisper" | "llm";
-  filename?: string;
-  downloaded: number;
-  total: number;
-  done: boolean;
+interface VersionInfo {
+  current: string;
+  latest: string | null;
+  update_available: boolean;
+  release_url: string | null;
 }
 
 interface EngineStatus {
@@ -41,27 +33,13 @@ interface EngineStatus {
   hotkey_error: string | null;
 }
 
-const MODEL_LABELS: Record<ModelStatus["key"], { name: string; subtitle: string }> = {
-  whisper: {
-    name: "Whisper (small.en)",
-    subtitle: "~466 MB · speech-to-text",
-  },
-  llm: {
-    name: "Qwen3 4B Instruct 2507 (Q4_K_M)",
-    subtitle: "~2.3 GB · transcript cleanup",
-  },
-};
+type CheckState = "idle" | "checking" | "ok" | "fail" | "off";
 
-function formatBytes(n: number): string {
-  if (n <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  let i = 0;
-  let v = n;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+interface Check {
+  key: "mic" | "hotkey" | "whisper" | "llm";
+  label: string;
+  state: CheckState;
+  detail: string | null;
 }
 
 function formatLoadError(e: unknown): string {
@@ -75,347 +53,320 @@ function formatLoadError(e: unknown): string {
 export default function Settings() {
   const [cfg, setCfg] = useState<Config | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [log, setLog] = useState<string>("");
-  const [saving, setSaving] = useState(false);
-  const [modelStatus, setModelStatus] = useState<ModelStatus[]>([]);
-  const [progress, setProgress] = useState<Record<string, ModelProgress>>({});
-  const [downloading, setDownloading] = useState<Record<string, boolean>>({});
   const [engine, setEngine] = useState<EngineStatus | null>(null);
 
-  const refreshModels = async () => {
-    try {
-      const list = await invoke<ModelStatus[]>("list_models");
-      setModelStatus(list);
-    } catch (e) {
-      setLog((p) => p + "\n" + String(e));
-    }
-  };
+  const [version, setVersion] = useState<VersionInfo | null>(null);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updateMsg, setUpdateMsg] = useState<string | null>(null);
+
+  const [micState, setMicState] = useState<CheckState>("idle");
+  const [micDetail, setMicDetail] = useState<string | null>(null);
+  const [runningCheck, setRunningCheck] = useState(false);
+
+  const [hotkeyDraft, setHotkeyDraft] = useState<string>("");
+  const [savingHotkey, setSavingHotkey] = useState(false);
+  const [hotkeyMsg, setHotkeyMsg] = useState<string | null>(null);
+
+  const [promptDraft, setPromptDraft] = useState<string>("");
+  const [savingPrompt, setSavingPrompt] = useState(false);
+  const [promptMsg, setPromptMsg] = useState<string | null>(null);
 
   useEffect(() => {
     invoke<Config>("get_config")
       .then((c) => {
         setCfg(c);
+        setHotkeyDraft(c.hotkey);
+        setPromptDraft(c.refine_prompt);
         setLoadError(null);
       })
       .catch((e) => setLoadError(formatLoadError(e)));
     invoke<EngineStatus>("get_engine_status").then(setEngine).catch(() => {});
-    refreshModels();
-    const unLog = listen<string>("log", (e) =>
-      setLog((prev) => (prev + "\n" + e.payload).split("\n").slice(-20).join("\n"))
-    );
-    const unProg = listen<ModelProgress>("model-progress", (e) => {
-      setProgress((prev) => ({ ...prev, [e.payload.key]: e.payload }));
-      if (e.payload.done) {
-        setDownloading((prev) => ({ ...prev, [e.payload.key]: false }));
-        refreshModels();
-      }
-    });
+    invoke<VersionInfo>("app_version").then(setVersion).catch(() => {});
     const unEngine = listen<EngineStatus>("engine-status", (e) =>
       setEngine(e.payload)
     );
     return () => {
-      unLog.then((fn) => fn());
-      unProg.then((fn) => fn());
       unEngine.then((fn) => fn());
     };
   }, []);
 
-  const downloadModel = async (key: ModelStatus["key"]) => {
-    setDownloading((prev) => ({ ...prev, [key]: true }));
-    setProgress((prev) => ({
-      ...prev,
-      [key]: { key, downloaded: 0, total: 0, done: false },
-    }));
+  const checks: Check[] = [
+    {
+      key: "mic",
+      label: "Microphone",
+      state: micState,
+      detail: micDetail,
+    },
+    {
+      key: "hotkey",
+      label: "Key binding",
+      state: engine
+        ? engine.hotkey_registered
+          ? "ok"
+          : "fail"
+        : "idle",
+      detail: engine?.hotkey_error
+        ? `"${engine.hotkey}" failed to register: ${engine.hotkey_error}`
+        : engine?.hotkey_registered
+        ? `Listening on ${engine.hotkey}`
+        : null,
+    },
+    {
+      key: "whisper",
+      label: "Whisper model",
+      state: engine
+        ? engine.whisper_loaded
+          ? "ok"
+          : "fail"
+        : "idle",
+      detail: engine?.whisper_error ?? (engine?.whisper_loaded ? "Loaded" : null),
+    },
+    {
+      key: "llm",
+      label: "Local AI (refinement)",
+      state: !cfg?.use_llm_refinement
+        ? "off"
+        : engine
+        ? engine.llm_loaded
+          ? "ok"
+          : "fail"
+        : "idle",
+      detail: cfg?.use_llm_refinement
+        ? engine?.llm_error ?? (engine?.llm_loaded ? "Loaded" : null)
+        : "Refinement is disabled — transcripts are pasted raw.",
+    },
+  ];
+
+  const runCheck = async () => {
+    setRunningCheck(true);
+    setMicState("checking");
+    setMicDetail(null);
     try {
-      await invoke<string>("download_model", { kind: key });
-      setLog((p) => p + `\nDownloaded ${key} model.`);
-      const fresh = await invoke<Config>("get_config");
-      setCfg(fresh);
-      await invoke("reload_models");
+      await invoke("check_mic");
+      setMicState("ok");
+      setMicDetail("Default input device is working");
     } catch (e) {
-      setLog((p) => p + "\nDownload failed: " + String(e));
+      setMicState("fail");
+      setMicDetail(String(e));
+    }
+    try {
+      setEngine(await invoke<EngineStatus>("get_engine_status"));
+    } catch {
+      /* engine-status listener keeps this fresh anyway */
+    }
+    setRunningCheck(false);
+  };
+
+  const checkUpdates = async () => {
+    setCheckingUpdates(true);
+    setUpdateMsg("Checking for updates…");
+    try {
+      const next = await invoke<VersionInfo>("check_for_updates");
+      setVersion(next);
+      setUpdateMsg(
+        next.update_available && next.latest
+          ? `Update available: v${next.latest}`
+          : "You're on the latest version."
+      );
+    } catch (e) {
+      setUpdateMsg("Update check failed: " + String(e));
     } finally {
-      setDownloading((prev) => ({ ...prev, [key]: false }));
-      refreshModels();
+      setCheckingUpdates(false);
+    }
+  };
+
+  const saveHotkey = async () => {
+    if (!cfg) return;
+    setSavingHotkey(true);
+    setHotkeyMsg(null);
+    try {
+      await invoke("save_config", { config: { ...cfg, hotkey: hotkeyDraft } });
+      setCfg({ ...cfg, hotkey: hotkeyDraft });
+      setHotkeyMsg(`Saved — holding ${hotkeyDraft} now dictates.`);
+    } catch (e) {
+      setHotkeyMsg(String(e));
+    } finally {
+      setSavingHotkey(false);
+    }
+  };
+
+  const savePrompt = async () => {
+    if (!cfg) return;
+    setSavingPrompt(true);
+    setPromptMsg(null);
+    try {
+      await invoke("save_config", {
+        config: { ...cfg, refine_prompt: promptDraft },
+      });
+      setCfg({ ...cfg, refine_prompt: promptDraft });
+      setPromptMsg("Saved.");
+    } catch (e) {
+      setPromptMsg(String(e));
+    } finally {
+      setSavingPrompt(false);
+    }
+  };
+
+  const resetPrompt = async () => {
+    try {
+      const def = await invoke<string>("default_prompt");
+      setPromptDraft(def);
+    } catch (e) {
+      setPromptMsg(String(e));
     }
   };
 
   if (loadError && !cfg) {
     return (
       <div className="settings">
-        <h1>Couldn't load settings</h1>
+        <h1>OpenWhisper</h1>
         <p className="sub">{loadError}</p>
       </div>
     );
   }
   if (!cfg) return <div className="settings">Loading…</div>;
 
-  const update = <K extends keyof Config>(k: K, v: Config[K]) =>
-    setCfg({ ...cfg, [k]: v });
-
-  const updateNumber = (
-    key: "max_recording_seconds" | "inference_threads",
-    value: string
-  ) => {
-    const parsed = Number.parseInt(value, 10);
-    update(key, (Number.isFinite(parsed) ? parsed : 0) as Config[typeof key]);
-  };
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      await invoke("save_config", { config: cfg });
-      setLog((p) => p + "\nSaved. Reloading models…");
-      await invoke("reload_models");
-      setLog((p) => p + "\nModels reloaded.");
-    } catch (e) {
-      setLog((p) => p + "\n" + String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const pickWhisper = async () => {
-    const path = await invoke<string | null>("pick_file", { kind: "whisper" });
-    if (path) update("whisper_model_path", path);
-  };
-  const pickLlm = async () => {
-    const path = await invoke<string | null>("pick_file", { kind: "llm" });
-    if (path) update("llm_model_path", path);
-  };
-
-  const issues: { tone: "error" | "warn"; text: string }[] = [];
-  if (engine) {
-    if (engine.whisper_error) {
-      issues.push({ tone: "error", text: `Whisper: ${engine.whisper_error}` });
-    } else if (!engine.whisper_loaded) {
-      issues.push({
-        tone: "warn",
-        text: "Whisper model not loaded — dictation will fail until one is configured.",
-      });
-    }
-    if (engine.llm_error) {
-      issues.push({ tone: "warn", text: `Local AI: ${engine.llm_error}` });
-    }
-    if (engine.hotkey_error) {
-      issues.push({
-        tone: "error",
-        text: `Hotkey "${engine.hotkey}" failed to register: ${engine.hotkey_error}. Pick a different combo.`,
-      });
-    }
-  }
+  const dotClass = (s: CheckState) =>
+    s === "ok" || s === "off" ? "ok" : s === "fail" ? "fail" : "pending";
+  const stateLabel = (s: CheckState) =>
+    s === "ok"
+      ? "OK"
+      : s === "off"
+      ? "Off"
+      : s === "fail"
+      ? "Problem"
+      : s === "checking"
+      ? "Checking…"
+      : "Not checked";
 
   return (
     <div className="settings">
       <h1>OpenWhisper</h1>
       <p className="sub">
         Hold <span className="kbd">{cfg.hotkey}</span> to dictate. Release to
-        transcribe, refine with local AI, and type into the focused app.
+        transcribe and type into the focused app.
       </p>
 
-      {issues.length > 0 && (
-        <div className="issues">
-          {issues.map((iss, i) => (
-            <div key={i} className={`issue issue-${iss.tone}`}>
-              {iss.text}
-            </div>
-          ))}
+      {/* ---- Version ---- */}
+      <section className="section">
+        <div className="section-head">
+          <h2>Version</h2>
+          <button
+            className="btn secondary small"
+            disabled={checkingUpdates}
+            onClick={checkUpdates}
+          >
+            {checkingUpdates ? "Checking…" : "Check for updates"}
+          </button>
         </div>
-      )}
+        <div className="section-body">
+          <div className="version-line">
+            <span className="about-value">v{version?.current ?? "…"}</span>
+            {version?.update_available && version.release_url && (
+              <button
+                className="btn small"
+                onClick={() =>
+                  open(version.release_url!).catch(() =>
+                    window.open(version.release_url!, "_blank")
+                  )
+                }
+              >
+                Download v{version.latest}
+              </button>
+            )}
+          </div>
+          {updateMsg && <p className="hint">{updateMsg}</p>}
+        </div>
+      </section>
 
-      <div className="row">
-        <label>Global Hotkey</label>
-        <input
-          type="text"
-          value={cfg.hotkey}
-          onChange={(e) => update("hotkey", e.target.value)}
-          placeholder="e.g. Fn or CmdOrCtrl+Shift+Space"
-        />
-      </div>
-
-      <div className="row">
-        <label>Models</label>
-        <div className="models">
-          {modelStatus.map((m) => {
-            const meta = MODEL_LABELS[m.key];
-            const prog = progress[m.key];
-            const isDownloading = downloading[m.key];
-            const pct =
-              prog && prog.total > 0
-                ? Math.min(100, Math.round((prog.downloaded / prog.total) * 100))
-                : 0;
-            return (
-              <div key={m.key} className="model">
-                <div className="model-head">
-                  <div>
-                    <div className="model-name">{meta.name}</div>
-                    <div className="model-sub">
-                      {meta.subtitle}
-                      {m.exists ? ` · installed (${formatBytes(m.size)})` : ""}
-                    </div>
-                  </div>
-                  {m.exists ? (
-                    <span className="badge ok">Installed</span>
-                  ) : isDownloading ? (
-                    <span className="badge">
-                      {prog && prog.total > 0
-                        ? `${pct}%`
-                        : prog
-                        ? formatBytes(prog.downloaded)
-                        : "Starting…"}
-                    </span>
-                  ) : (
-                    <button
-                      className="btn secondary"
-                      onClick={() => downloadModel(m.key)}
-                    >
-                      Download
-                    </button>
-                  )}
+      {/* ---- Health check ---- */}
+      <section className="section">
+        <div className="section-head">
+          <h2>Everything connected?</h2>
+          <button
+            className="btn secondary small"
+            disabled={runningCheck}
+            onClick={runCheck}
+          >
+            {runningCheck ? "Running…" : "Run check"}
+          </button>
+        </div>
+        <div className="section-body">
+          <div className="checks">
+            {checks.map((c) => (
+              <div key={c.key} className="check-row">
+                <span className={`dot dot-${dotClass(c.state)}`} />
+                <div className="check-text">
+                  <div className="check-label">{c.label}</div>
+                  {c.detail && <div className="check-detail">{c.detail}</div>}
                 </div>
-                {isDownloading && (
-                  <div className="bar">
-                    <div
-                      className="bar-fill"
-                      style={{
-                        width: prog && prog.total > 0 ? `${pct}%` : "30%",
-                      }}
-                    />
-                  </div>
-                )}
+                <span className={`badge${c.state === "ok" || c.state === "off" ? " ok" : c.state === "fail" ? " bad" : ""}`}>
+                  {stateLabel(c.state)}
+                </span>
               </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="row">
-        <label>Whisper Model (.bin / GGML)</label>
-        <div style={{ display: "flex", gap: 6 }}>
-          <input
-            type="text"
-            value={cfg.whisper_model_path}
-            onChange={(e) => update("whisper_model_path", e.target.value)}
-            style={{ flex: 1 }}
-          />
-          <button className="btn secondary" onClick={pickWhisper}>Browse</button>
-        </div>
-      </div>
-
-      <div className="row">
-        <label>Language (whisper)</label>
-        <input
-          type="text"
-          value={cfg.language}
-          onChange={(e) => update("language", e.target.value)}
-          placeholder="auto / en / es / …"
-        />
-      </div>
-
-      <div className="row">
-        <label>
-          <input
-            type="checkbox"
-            checked={cfg.use_llm_refinement}
-            onChange={(e) => update("use_llm_refinement", e.target.checked)}
-          />{" "}
-          Refine with local AI
-        </label>
-      </div>
-
-      <div className="row">
-        <label>
-          <input
-            type="checkbox"
-            checked={cfg.fast_paste}
-            onChange={(e) => update("fast_paste", e.target.checked)}
-          />{" "}
-          Fast paste (paste raw transcript immediately, then replace with refined)
-        </label>
-      </div>
-
-      <div className="row">
-        <label>
-          <input
-            type="checkbox"
-            checked={cfg.restore_clipboard}
-            onChange={(e) => update("restore_clipboard", e.target.checked)}
-          />{" "}
-          Restore clipboard after paste (off by default — leaves the dictated text on the clipboard for re-paste)
-        </label>
-      </div>
-
-      <div className="row">
-        <label>Performance</label>
-        <div className="perf-grid">
-          <div>
-            <div className="field-hint">Max recording seconds</div>
-            <input
-              type="number"
-              min={5}
-              max={600}
-              value={cfg.max_recording_seconds}
-              onChange={(e) => updateNumber("max_recording_seconds", e.target.value)}
-            />
-          </div>
-          <div>
-            <div className="field-hint">Inference threads (0 = auto)</div>
-            <input
-              type="number"
-              min={0}
-              max={32}
-              value={cfg.inference_threads}
-              onChange={(e) => updateNumber("inference_threads", e.target.value)}
-            />
+            ))}
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="row">
-        <label>Local AI model (.gguf)</label>
-        <div style={{ display: "flex", gap: 6 }}>
-          <input
-            type="text"
-            value={cfg.llm_model_path}
-            onChange={(e) => update("llm_model_path", e.target.value)}
-            style={{ flex: 1 }}
-          />
-          <button className="btn secondary" onClick={pickLlm}>Browse</button>
+      {/* ---- Key binding ---- */}
+      <section className="section">
+        <div className="section-head">
+          <h2>Key binding</h2>
         </div>
-      </div>
+        <div className="section-body">
+          <div className="inline-field">
+            <input
+              type="text"
+              value={hotkeyDraft}
+              onChange={(e) => setHotkeyDraft(e.target.value)}
+              placeholder="e.g. Fn or CmdOrCtrl+Shift+Space"
+            />
+            <button
+              className="btn small"
+              disabled={savingHotkey || hotkeyDraft === cfg.hotkey}
+              onClick={saveHotkey}
+            >
+              {savingHotkey ? "Saving…" : "Save"}
+            </button>
+          </div>
+          <p className="hint">
+            Hold-to-talk is global — it works in any app. Combos like
+            Cmd+Shift+Space may conflict with other apps.
+          </p>
+          {hotkeyMsg && <p className="hint">{hotkeyMsg}</p>}
+        </div>
+      </section>
 
-      <div className="row">
-        <label>Refinement Prompt</label>
-        <textarea
-          value={cfg.refine_prompt}
-          onChange={(e) => update("refine_prompt", e.target.value)}
-        />
-      </div>
-
-      <div className="actions">
-        <button className="btn" disabled={saving} onClick={save}>
-          {saving ? "Saving…" : "Save & Reload"}
-        </button>
-        <button
-          className="btn secondary"
-          onClick={async () => {
-            setLog((p) => p + "\nRecording 3s…");
-            try {
-              const out = await invoke<string>("test_dictate", {
-                seconds: 3,
-                inject: false,
-              });
-              setLog((p) => p + "\nResult: " + out);
-            } catch (e) {
-              setLog((p) => p + "\nError: " + String(e));
-            }
-          }}
-        >
-          Test (record 3s)
-        </button>
-      </div>
-
-      {log && <pre className="status-line">{log.trim()}</pre>}
+      {/* ---- System prompt ---- */}
+      <section className="section">
+        <div className="section-head">
+          <h2>System prompt</h2>
+          <button className="btn secondary small" onClick={resetPrompt}>
+            Reset to default
+          </button>
+        </div>
+        <div className="section-body">
+          <textarea
+            value={promptDraft}
+            onChange={(e) => setPromptDraft(e.target.value)}
+            rows={6}
+          />
+          <div className="prompt-actions">
+            <button
+              className="btn small"
+              disabled={savingPrompt || promptDraft === cfg.refine_prompt}
+              onClick={savePrompt}
+            >
+              {savingPrompt ? "Saving…" : "Save"}
+            </button>
+            {promptMsg && <span className="hint">{promptMsg}</span>}
+          </div>
+          <p className="hint">
+            Applied to the local AI that cleans up your transcripts.
+          </p>
+        </div>
+      </section>
     </div>
   );
 }

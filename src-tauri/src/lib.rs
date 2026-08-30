@@ -127,12 +127,35 @@ fn get_config(state: State<AppState>) -> Config {
 #[tauri::command]
 fn save_config(app: AppHandle, state: State<AppState>, config: Config) -> Result<(), String> {
     config::save(&config).map_err(|e| e.to_string())?;
-    let old_hotkey = state.config.lock().hotkey.clone();
+    let (old_hotkey, old_show_in_app_switcher) = {
+        let old = state.config.lock();
+        (old.hotkey.clone(), old.show_in_app_switcher)
+    };
     *state.config.lock() = config.clone();
     if old_hotkey != config.hotkey {
         register_hotkey(&app, &config.hotkey).map_err(|e| e.to_string())?;
     }
+    if old_show_in_app_switcher != config.show_in_app_switcher {
+        apply_app_switcher_visibility(&app, config.show_in_app_switcher);
+    }
     Ok(())
+}
+
+/// Cmd+Tab / Dock visibility. Accessory (the default) keeps OpenWhisper in the
+/// menu bar only; Regular puts it in the app switcher like a normal app.
+fn apply_app_switcher_visibility(app: &AppHandle, show: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        let policy = if show {
+            tauri::ActivationPolicy::Regular
+        } else {
+            tauri::ActivationPolicy::Accessory
+        };
+        if let Err(e) = app.set_activation_policy(policy) {
+            log::warn!("failed to set activation policy: {e}");
+        }
+    }
+    let _ = (app, show);
 }
 
 #[tauri::command]
@@ -1397,6 +1420,15 @@ pub fn run() {
         .manage(AppState::new())
         .setup(|app| {
             let handle = app.handle().clone();
+
+            // Hide from Cmd+Tab / Dock unless the user opted in. Do this
+            // first so the icon doesn't flash in the switcher at launch.
+            let show_in_app_switcher = handle
+                .state::<AppState>()
+                .config
+                .lock()
+                .show_in_app_switcher;
+            apply_app_switcher_visibility(&handle, show_in_app_switcher);
 
             // Spawn pipeline thread and stash the sender.
             let tx = spawn_pipeline(handle.clone());

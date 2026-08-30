@@ -185,6 +185,20 @@ button {
   align-items: center;
   gap: 10px;
 }
+.toggle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+.toggle-row input[type="checkbox"] {
+  margin-top: 3px;
+  accent-color: #2563eb;
+}
+.toggle-row .toggle-label {
+  font-size: 13px;
+  color: #f5f5f7;
+}
 
 /* ---------- Health checks ---------- */
 .checks {

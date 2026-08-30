@@ -47,6 +47,12 @@ pub struct Config {
     /// unloading entirely (models stay resident once loaded).
     #[serde(default = "default_idle_unload_secs")]
     pub idle_unload_secs: u32,
+
+    /// Show OpenWhisper in the Cmd+Tab app switcher (and the Dock). Off by
+    /// default — this is a menu-bar app, so it stays out of the switcher
+    /// unless the user opts in.
+    #[serde(default)]
+    pub show_in_app_switcher: bool,
 }
 
 impl Default for Config {
@@ -63,6 +69,7 @@ impl Default for Config {
             max_recording_seconds: default_max_recording_seconds(),
             inference_threads: 0,
             idle_unload_secs: default_idle_unload_secs(),
+            show_in_app_switcher: false,
         }
     }
 }
@@ -153,4 +160,30 @@ pub fn save(cfg: &Config) -> std::io::Result<()> {
     let path = config_path();
     let s = serde_json::to_string_pretty(cfg).unwrap();
     std::fs::write(path, s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_switcher_defaults_to_hidden() {
+        assert!(!Config::default().show_in_app_switcher);
+    }
+
+    #[test]
+    fn app_switcher_missing_from_json_stays_hidden() {
+        let cfg: Config = serde_json::from_str(
+            r#"{
+                "hotkey": "Fn",
+                "whisper_model_path": "",
+                "llm_model_path": "",
+                "refine_prompt": "x",
+                "use_llm_refinement": true,
+                "language": "auto"
+            }"#,
+        )
+        .unwrap();
+        assert!(!cfg.show_in_app_switcher);
+    }
 }

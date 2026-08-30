@@ -15,6 +15,7 @@ interface Config {
   max_recording_seconds: number;
   inference_threads: number;
   idle_unload_secs: number;
+  show_in_app_switcher: boolean;
 }
 
 interface VersionInfo {
@@ -71,6 +72,9 @@ export default function Settings() {
   const [promptDraft, setPromptDraft] = useState<string>("");
   const [savingPrompt, setSavingPrompt] = useState(false);
   const [promptMsg, setPromptMsg] = useState<string | null>(null);
+
+  const [savingSwitcher, setSavingSwitcher] = useState(false);
+  const [switcherMsg, setSwitcherMsg] = useState<string | null>(null);
 
   useEffect(() => {
     invoke<Config>("get_config")
@@ -229,6 +233,21 @@ export default function Settings() {
     }
   };
 
+  const setShowInAppSwitcher = async (show: boolean) => {
+    if (!cfg) return;
+    setSavingSwitcher(true);
+    setSwitcherMsg(null);
+    const next = { ...cfg, show_in_app_switcher: show };
+    try {
+      await invoke("save_config", { config: next });
+      setCfg(next);
+    } catch (e) {
+      setSwitcherMsg(String(e));
+    } finally {
+      setSavingSwitcher(false);
+    }
+  };
+
   if (loadError && !cfg) {
     return (
       <div className="settings">
@@ -350,6 +369,32 @@ export default function Settings() {
             Cmd+Shift+Space may conflict with other apps.
           </p>
           {hotkeyMsg && <p className="hint">{hotkeyMsg}</p>}
+        </div>
+      </section>
+
+      {/* ---- App switcher ---- */}
+      <section className="section">
+        <div className="section-head">
+          <h2>App switcher</h2>
+        </div>
+        <div className="section-body">
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={cfg.show_in_app_switcher}
+              disabled={savingSwitcher}
+              onChange={(e) => setShowInAppSwitcher(e.target.checked)}
+            />
+            <div>
+              <div className="toggle-label">Show in Cmd+Tab</div>
+              <p className="hint">
+                Off by default. When off, OpenWhisper stays in the menu bar
+                and is hidden from Cmd+Tab and the Dock. Turning this on also
+                shows a Dock icon. Hiding again may need a quit and reopen.
+              </p>
+            </div>
+          </label>
+          {switcherMsg && <p className="hint">{switcherMsg}</p>}
         </div>
       </section>
 

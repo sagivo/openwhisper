@@ -445,7 +445,6 @@ async function writeUpdaterArtifacts(input) {
 
   step('Signing updater archive');
   const signArgs = ['tauri', 'signer', 'sign', input.tarPath];
-  if (keyPath) signArgs.splice(3, 0, '-f', keyPath);
   await run('npx', signArgs, { env: await updaterSigningEnv() });
 
   const sig = (await readFile(`${input.tarPath}.sig`, 'utf8')).trim();
@@ -474,7 +473,7 @@ async function updaterSigningEnv() {
   }
   if (env.TAURI_SIGNING_PRIVATE_KEY) return env;
   const keyPath = resolveUpdaterKeyPath();
-  if (keyPath) env.TAURI_SIGNING_PRIVATE_KEY_PATH = keyPath;
+  if (keyPath) env.TAURI_SIGNING_PRIVATE_KEY = await readFile(keyPath, 'utf8');
   return env;
 }
 

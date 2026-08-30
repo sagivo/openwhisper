@@ -542,6 +542,37 @@ export default function Setup() {
           </button>
         )}
 
+        {phase === "ready" && trial.step === "needs-access" && (
+          <div className="setup-perms">
+            <button
+              className="btn setup-done"
+              onClick={() =>
+                invoke("open_permission_pane", {
+                  pane: trial.accessibility ? "input-monitoring" : "accessibility",
+                })
+              }
+            >
+              {trial.accessibility
+                ? "Open Input Monitoring settings"
+                : "Open Accessibility settings"}
+            </button>
+            <p className="setup-restart-hint">
+              Toggled it on but still nothing? Quit OpenWhisper from the menu
+              bar (🤫 → Quit) and reopen it. If OpenWhisper is already listed
+              but the toggle won't stick, remove it from the list, reopen
+              OpenWhisper, and allow it when macOS asks.
+            </p>
+          </div>
+        )}
+
+        {phase === "ready" && trial.step === "error" && (
+          <p className="setup-restart-hint">
+            If this mentions the microphone: allow OpenWhisper under System
+            Settings → Privacy &amp; Security → Microphone, then quit and
+            reopen the app.
+          </p>
+        )}
+
         {phase === "error" && (
           <button
             className="btn setup-done"

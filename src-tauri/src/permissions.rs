@@ -34,6 +34,14 @@ pub fn open_accessibility_settings() {
     }
 }
 
+/// Open the OS pane where Microphone access can be granted.
+pub fn open_microphone_settings() {
+    #[cfg(target_os = "macos")]
+    {
+        macos::open_pane("Privacy_Microphone");
+    }
+}
+
 /// Whether this process may listen to keyboard events (Fn, global taps).
 /// Non-macOS always returns true.
 pub fn input_monitoring_trusted() -> bool {

@@ -14,6 +14,7 @@ interface Config {
   restore_clipboard: boolean;
   max_recording_seconds: number;
   inference_threads: number;
+  idle_unload_secs: number;
 }
 
 interface VersionInfo {
@@ -33,7 +34,7 @@ interface EngineStatus {
   hotkey_error: string | null;
 }
 
-type CheckState = "idle" | "checking" | "ok" | "fail" | "off";
+type CheckState = "idle" | "checking" | "ok" | "fail" | "off" | "sleeping";
 
 interface Check {
   key: "mic" | "hotkey" | "whisper" | "llm";
@@ -117,9 +118,15 @@ export default function Settings() {
       state: engine
         ? engine.whisper_loaded
           ? "ok"
-          : "fail"
+          : engine.whisper_error
+          ? "fail"
+          : "sleeping"
         : "idle",
-      detail: engine?.whisper_error ?? (engine?.whisper_loaded ? "Loaded" : null),
+      detail: engine?.whisper_error
+        ? engine.whisper_error
+        : engine?.whisper_loaded
+        ? "Loaded"
+        : "Unloaded to save memory — reloads on your next dictation.",
     },
     {
       key: "llm",
@@ -129,10 +136,16 @@ export default function Settings() {
         : engine
         ? engine.llm_loaded
           ? "ok"
-          : "fail"
+          : engine.llm_error
+          ? "fail"
+          : "sleeping"
         : "idle",
       detail: cfg?.use_llm_refinement
-        ? engine?.llm_error ?? (engine?.llm_loaded ? "Loaded" : null)
+        ? engine?.llm_error
+          ? engine.llm_error
+          : engine?.llm_loaded
+          ? "Loaded"
+          : "Unloaded to save memory — reloads on your next dictation."
         : "Refinement is disabled — transcripts are pasted raw.",
     },
   ];
@@ -235,6 +248,8 @@ export default function Settings() {
       ? "Off"
       : s === "fail"
       ? "Problem"
+      : s === "sleeping"
+      ? "Unloaded"
       : s === "checking"
       ? "Checking…"
       : "Not checked";

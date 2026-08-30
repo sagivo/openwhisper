@@ -40,6 +40,13 @@ pub struct Config {
     /// uses the existing half-of-available-cores heuristic.
     #[serde(default)]
     pub inference_threads: u32,
+
+    /// Seconds of inactivity after which loaded models are dropped from
+    /// memory. Models reload (lazily) on the next dictation, which costs a
+    /// couple of seconds of latency but frees ~1 GB of RAM. `0` disables
+    /// unloading entirely (models stay resident once loaded).
+    #[serde(default = "default_idle_unload_secs")]
+    pub idle_unload_secs: u32,
 }
 
 impl Default for Config {
@@ -55,12 +62,17 @@ impl Default for Config {
             restore_clipboard: false,
             max_recording_seconds: default_max_recording_seconds(),
             inference_threads: 0,
+            idle_unload_secs: default_idle_unload_secs(),
         }
     }
 }
 
 pub fn default_max_recording_seconds() -> u32 {
     120
+}
+
+pub fn default_idle_unload_secs() -> u32 {
+    600
 }
 
 pub fn resolve_inference_threads(configured: u32) -> i32 {

@@ -70,6 +70,7 @@ const BROWSER_CONFIG = {
   restore_clipboard: false,
   max_recording_seconds: 120,
   inference_threads: 0,
+  idle_unload_secs: 600,
 };
 
 /** Browser-only stand-in so `npm run dev` can render the UI without Tauri. */

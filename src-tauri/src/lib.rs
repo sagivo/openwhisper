@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_global_shortcut::{
     Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutEvent, ShortcutState,
@@ -66,6 +66,7 @@ struct EngineStatus {
 enum Job {
     Process(Vec<f32>),
     ReloadModels,
+    UnloadModels,
 }
 
 pub struct AppState {
@@ -82,6 +83,10 @@ pub struct AppState {
     /// Last tooltip text set on the tray icon. Used to skip redundant
     /// `set_tooltip` syscalls when the text hasn't changed.
     last_tray_tooltip: Mutex<&'static str>,
+    /// Last time the engines were used (or loaded). Drives the idle-unload
+    /// monitor. `None` until the first load/use — models never load eagerly
+    /// at startup, so there's nothing to unload before then.
+    last_activity: Mutex<Option<Instant>>,
 }
 
 impl AppState {
@@ -95,6 +100,7 @@ impl AppState {
             current_hotkey: Mutex::new(None),
             engine_status: Mutex::new(EngineStatus::default()),
             last_tray_tooltip: Mutex::new(""),
+            last_activity: Mutex::new(None),
         }
     }
 }
@@ -165,6 +171,13 @@ async fn pick_file(app: AppHandle, kind: String) -> Result<Option<String>, Strin
 #[tauri::command]
 async fn test_dictate(app: AppHandle, seconds: u64, inject: bool) -> Result<String, String> {
     let state = app.state::<AppState>();
+    // Settings may be used long after an idle unload; lazily reload first.
+    {
+        let app_load = app.clone();
+        tauri::async_runtime::spawn_blocking(move || ensure_models_loaded(&app_load))
+            .await
+            .map_err(|e| e.to_string())?;
+    }
     let recorder = state.recorder.clone();
     let whisper = state
         .whisper
@@ -760,11 +773,13 @@ fn spawn_pipeline(app: AppHandle) -> Sender<Job> {
     let (tx, rx) = bounded::<Job>(2);
     let app_handle = app.clone();
     std::thread::spawn(move || {
-        // Initial model load.
-        load_models(&app_handle);
+        // Models load lazily on first use (see `ensure_models_loaded`), so
+        // nothing is loaded here — a fresh app launch costs ~0 model RAM
+        // until the user dictates.
         while let Ok(job) = rx.recv() {
             match job {
                 Job::ReloadModels => load_models(&app_handle),
+                Job::UnloadModels => unload_models(&app_handle),
                 Job::Process(samples) => {
                     if let Err(e) = run_pipeline(&app_handle, samples) {
                         emit_status(
@@ -851,7 +866,81 @@ fn load_models(app: &AppHandle) {
         s.llm_loaded = llm_loaded;
         s.llm_error = llm_error;
     }
+    *state.last_activity.lock() = Some(Instant::now());
     emit_engine_status(app);
+}
+
+/// Load any engines that are missing before running the pipeline. Called on
+/// the worker thread right before a recording is processed — with lazy
+/// loading this is where the (couple-of-seconds) first-use load latency
+/// lands. Also refreshes `last_activity` so the idle-unload monitor counts
+/// from the most recent use.
+fn ensure_models_loaded(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let use_llm = state.config.lock().use_llm_refinement;
+    let needs_load = {
+        let s = state.engine_status.lock();
+        !s.whisper_loaded || (use_llm && !s.llm_loaded)
+    };
+    if needs_load {
+        load_models(app);
+    } else {
+        *state.last_activity.lock() = Some(Instant::now());
+    }
+}
+
+/// Drop both engines to reclaim ~1 GB of RAM. Runs on the pipeline worker
+/// thread (via `Job::UnloadModels`) so it can never race a `Process` job —
+/// the queue serializes them. Skips silently when nothing is loaded or a
+/// recording is in flight.
+fn unload_models(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if state.recorder.is_recording() {
+        return;
+    }
+    let any_loaded = {
+        let s = state.engine_status.lock();
+        s.whisper_loaded || s.llm_loaded
+    };
+    if !any_loaded {
+        return;
+    }
+    *state.whisper.lock() = None;
+    *state.llm.lock() = None;
+    {
+        let mut s = state.engine_status.lock();
+        s.whisper_loaded = false;
+        s.whisper_error = None;
+        s.llm_loaded = false;
+        s.llm_error = None;
+    }
+    emit_log(app, "Models unloaded (idle). They reload on the next dictation.");
+    emit_engine_status(app);
+}
+
+/// Background monitor: every 30 s, if the models have been idle longer than
+/// `config.idle_unload_secs`, ask the pipeline thread to unload them. All
+/// state changes happen on the worker thread via the job queue.
+fn spawn_idle_unloader(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(30));
+        let state = app.state::<AppState>();
+        let timeout_secs = state.config.lock().idle_unload_secs;
+        if timeout_secs == 0 || state.recorder.is_recording() {
+            continue;
+        }
+        let idle = match *state.last_activity.lock() {
+            Some(t) => t.elapsed(),
+            None => continue,
+        };
+        if idle >= Duration::from_secs(timeout_secs as u64) {
+            if let Some(tx) = state.job_tx.lock().clone() {
+                // Err just means the queue is busy (a recording is being
+                // processed); we'll retry on the next tick.
+                let _ = tx.try_send(Job::UnloadModels);
+            }
+        }
+    });
 }
 
 /// Returns true when the transcription is empty or matches one of the well-known
@@ -886,6 +975,9 @@ fn is_blank_transcription(raw: &str) -> bool {
 
 fn run_pipeline(app: &AppHandle, samples: Vec<f32>) -> Result<()> {
     let state = app.state::<AppState>();
+    // Lazy load: if models were unloaded (startup or idle), this is where the
+    // reload latency lands.
+    ensure_models_loaded(app);
     let whisper = state
         .whisper
         .lock()
@@ -952,6 +1044,12 @@ fn run_pipeline(app: &AppHandle, samples: Vec<f32>) -> Result<()> {
 
         emit_status(app, Status::Injecting);
         emit_log(app, &format!("Fast-pasting raw: {raw_for_paste}"));
+        if !accessibility_ready(app) {
+            if let Err(e) = injector::copy_to_clipboard(&raw_for_paste) {
+                emit_log(app, &format!("Failed to copy transcript to clipboard: {e}"));
+            }
+            return Ok(());
+        }
         let prev_units = match injector::paste_sync(&raw_for_paste) {
             Ok(n) => {
                 emit_log(app, &format!("Raw paste OK ({n} units)"));
@@ -1035,6 +1133,12 @@ fn run_pipeline(app: &AppHandle, samples: Vec<f32>) -> Result<()> {
 
     emit_status(app, Status::Injecting);
     emit_log(app, &format!("Pasting: {final_text}"));
+    if !accessibility_ready(app) {
+        if let Err(e) = injector::copy_to_clipboard(&final_text) {
+            emit_log(app, &format!("Failed to copy transcript to clipboard: {e}"));
+        }
+        return Ok(());
+    }
     injector::type_text(final_text, cfg.restore_clipboard)?;
 
     std::thread::sleep(Duration::from_millis(150));
@@ -1058,12 +1162,7 @@ fn on_hotkey_state(app: &AppHandle, pressed: bool) {
         }
         let max_recording_seconds = state.config.lock().max_recording_seconds;
         if let Err(e) = state.recorder.start(max_recording_seconds) {
-            emit_status(
-                app,
-                Status::Error {
-                    message: e.to_string(),
-                },
-            );
+            recording_start_failed(app, e.to_string());
             return;
         }
         start_level_monitor(app.clone(), state.recorder.clone());
@@ -1100,6 +1199,26 @@ fn on_hotkey_state(app: &AppHandle, pressed: bool) {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Pre-flight guard for text injection. When macOS Accessibility is off,
+/// synthetic keystrokes are *silently dropped* by the OS — the user sees no
+/// text and no error anywhere. Instead of letting that happen, surface a loud
+/// error status and leave the transcript on the clipboard so the user can
+/// still paste it manually. Returns `true` when injection may proceed.
+fn accessibility_ready(app: &AppHandle) -> bool {
+    if permissions::accessibility_trusted() {
+        return true;
+    }
+    let message = "Accessibility is off, so OpenWhisper can't paste. Enable it in \
+                   System Settings → Privacy & Security → Accessibility \
+                   (your transcript is on the clipboard).";
+    emit_log(app, &format!("Injection blocked: {message}"));
+    emit_status(app, Status::Error { message: message.to_string() });
+    // Return to the guided setup screen, whose trial flow re-prompts for the
+    // missing permission and opens the right System Settings pane.
+    show_window(app, "setup");
+    false
+}
 
 fn emit_status(app: &AppHandle, status: Status) {
     update_tray(app, &status);
@@ -1221,20 +1340,40 @@ fn toggle_dictation(app: &AppHandle) {
     }
     let max_recording_seconds = state.config.lock().max_recording_seconds;
     if let Err(e) = state.recorder.start(max_recording_seconds) {
-        emit_status(
-            app,
-            Status::Error {
-                message: e.to_string(),
-            },
-        );
+        recording_start_failed(app, e.to_string());
         return;
     }
     start_level_monitor(app.clone(), state.recorder.clone());
 }
 
+/// A recording could not start — most often a revoked Microphone permission
+/// (macOS resets TCC grants on OS updates) or no input device. Surface a loud
+/// error with guidance and return the user to the setup screen, which can
+/// walk them through re-granting access.
+fn recording_start_failed(app: &AppHandle, error: String) {
+    let message = format!(
+        "Couldn't access the microphone ({error}). Check System Settings → \
+         Privacy & Security → Microphone and make sure OpenWhisper is allowed. \
+         If you just granted access, quit OpenWhisper (menu-bar 🤫 → Quit) and reopen it."
+    );
+    emit_log(app, &format!("Recording start failed: {message}"));
+    emit_status(app, Status::Error { message });
+    show_window(app, "setup");
+}
+
 fn emit_log(app: &AppHandle, msg: &str) {
     log::info!("{msg}");
     let _ = app.emit("log", msg.to_string());
+}
+
+#[tauri::command]
+fn open_permission_pane(app: AppHandle, pane: String) {
+    match pane.as_str() {
+        "microphone" => permissions::open_microphone_settings(),
+        "input-monitoring" => permissions::open_input_monitoring_settings(),
+        _ => permissions::open_accessibility_settings(),
+    }
+    let _ = app;
 }
 
 // ---------------------------------------------------------------------------
@@ -1262,6 +1401,9 @@ pub fn run() {
             // Spawn pipeline thread and stash the sender.
             let tx = spawn_pipeline(handle.clone());
             *handle.state::<AppState>().job_tx.lock() = Some(tx);
+
+            // Idle monitor: unloads models after the configured idle timeout.
+            spawn_idle_unloader(handle.clone());
 
             // Register the configured hotkey.
             let hk = handle.state::<AppState>().config.lock().hotkey.clone();
@@ -1328,6 +1470,21 @@ pub fn run() {
 
             emit_status(&handle, Status::Idle);
 
+            // A permission that was granted once can silently disappear —
+            // macOS updates are known to reset TCC grants. If so, bring the
+            // guided setup screen back instead of failing at dictation time.
+            let hotkey = handle.state::<AppState>().config.lock().hotkey.clone();
+            let needs_access = !permissions::accessibility_trusted()
+                || (permissions::hotkey_needs_listen_event(&hotkey)
+                    && !permissions::input_monitoring_trusted());
+            if needs_access {
+                emit_log(
+                    &handle,
+                    "Permissions missing at launch; reopening guided setup.",
+                );
+                show_window(&handle, "setup");
+            }
+
             if needs_onboarding(&handle.state::<AppState>().config.lock())
                 || std::env::var_os("OPENWHISPER_FORCE_SETUP").is_some()
             {
@@ -1363,7 +1520,8 @@ pub fn run() {
             start_setup,
             dismiss_setup,
             hotkey_press,
-            hotkey_release
+            hotkey_release,
+            open_permission_pane
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

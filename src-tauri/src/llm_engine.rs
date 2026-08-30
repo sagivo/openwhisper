@@ -57,7 +57,10 @@ fn backend() -> Result<&'static LlamaBackend> {
     BACKEND.get_or_try_init(|| LlamaBackend::init().map_err(|e| anyhow!("llama backend: {e}")))
 }
 
-const N_CTX: u32 = 4096;
+/// Context window for refinement. A 2-min dictation is at most a few hundred
+/// tokens plus the system prompt, so 2048 is ample and keeps the KV cache
+/// (~150 KB/token for Qwen3-4B) at a fraction of a 4096 window.
+const N_CTX: u32 = 2048;
 const MAX_NEW_TOKENS: i32 = 256;
 
 struct Inner {

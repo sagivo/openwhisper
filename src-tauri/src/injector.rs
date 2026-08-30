@@ -143,6 +143,13 @@ fn inject(text: String, restore_clipboard: bool) -> Result<()> {
     Ok(())
 }
 
+/// Copy `text` to the system clipboard without sending a paste. Used when
+/// injection is blocked (e.g. macOS Accessibility not granted) so the user
+/// can still paste the transcript manually.
+pub fn copy_to_clipboard(text: &str) -> Result<()> {
+    set_clipboard(text)
+}
+
 fn read_clipboard() -> Result<String> {
     let mut cb = arboard::Clipboard::new().map_err(|e| anyhow::anyhow!("clipboard: {e}"))?;
     cb.get_text()

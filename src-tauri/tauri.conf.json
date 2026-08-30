@@ -30,7 +30,10 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "targets": ["app", "dmg"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -49,7 +52,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEExQUQ3Q0UzRTgyNDMxQzMKUldURE1TVG80M3l0b1lHNHdnWjlLWnNpODVRUEZlOEI2RlpHY0ZDK0ZhUzJEY2FKNnJTakFTcUkK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk0RTAwQTM1ODlGRUI3REIKUldUYnQvNkpOUXJnbElLZklFbXNRdTd6VldoUG9qM1VsTFhSazZwenlNY1NvV2xkR1lSMWhadzAK",
       "endpoints": [
         "https://github.com/sagivo/openwhisper/releases/latest/download/latest.json"
       ]

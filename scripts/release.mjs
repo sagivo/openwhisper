@@ -474,8 +474,7 @@ async function updaterSigningEnv() {
   }
   if (env.TAURI_SIGNING_PRIVATE_KEY) return env;
   const keyPath = resolveUpdaterKeyPath();
-  env.TAURI_SIGNING_PRIVATE_KEY = keyPath;
-  env.TAURI_SIGNING_PRIVATE_KEY_PATH = keyPath;
+  if (keyPath) env.TAURI_SIGNING_PRIVATE_KEY_PATH = keyPath;
   return env;
 }
 

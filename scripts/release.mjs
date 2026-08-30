@@ -10,7 +10,7 @@
 // Credentials it expects on the machine (already configured here):
 //   * A "Developer ID Application" identity in the login Keychain
 //     (auto-detected; override with --signing-identity).
-//   * A notarytool keychain profile (default: "beside"; override with
+//   * A notarytool keychain profile (default: "openwhisper"; override with
 //     --notary-profile or APPLE_KEYCHAIN_PROFILE). Alternatively set Apple API
 //     key env (APPLE_API_KEY/APPLE_API_KEY_ID/APPLE_API_ISSUER) or Apple ID env
 //     (APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID).
@@ -136,7 +136,7 @@ function parseArgs(argv) {
     signingIdentity: null,
     tag: null,
     version: null,
-    notaryProfile: process.env.APPLE_KEYCHAIN_PROFILE || 'beside',
+    notaryProfile: process.env.APPLE_KEYCHAIN_PROFILE || 'openwhisper',
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -219,7 +219,7 @@ Options:
   --tag v0.0.1              Release tag. Default: v<tauri.conf.json version>
   --repo owner/name         GitHub repo. Default: inferred from git remote.
   --signing-identity <id>   Developer ID identity. Default: auto-detected.
-  --notary-profile <name>   notarytool keychain profile. Default: beside
+  --notary-profile <name>   notarytool keychain profile. Default: openwhisper
   --force-tag               Move an existing tag to HEAD and force-push it.
   --no-upload               Build + verify locally, but skip tag/release upload.
   --allow-non-main          Permit releasing from a branch other than main.
